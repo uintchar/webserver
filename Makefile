@@ -1,6 +1,6 @@
 src = $(wildcard ./src/*.cpp)
 obj = $(patsubst %.cpp, %.o, $(src))
-target = WebServer
+target = webserver.out
 cc = g++
 
 $(target) : $(obj)
