@@ -11,4 +11,4 @@ $(target) : $(obj)
 
 .PHONY : clean
 clean :
-	rm $(obj)
+	rm $(obj) $(target)
