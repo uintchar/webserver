@@ -223,16 +223,59 @@
   }
   ```
 
-- 父子进程可以同时互发消息
-
-  ```cpp {class=line-numbers}
-
-  ```
-
 - 实现 `ps aux | grep xxx` 父子进程间通信
 
   ```cpp {class=line-numbers}
+  #include <unistd.h>
+  #include <sys/types.h>
+  #include <stdio.h>
+  #include <stdlib.h>
+  #include <string.h>
+  #include <wait.h>
 
+  int main()
+  {
+    // 创建一个管道
+    int fd[2];
+    if (pipe(fd) == -1)
+    {
+      perror("pipe");
+      exit(EXIT_FAILURE);
+    }
+
+    // 创建子进程
+    pid_t pid = fork();
+    if (pid > 0)
+    {
+      close(fd[1]);
+      char buf[1024] = {0};
+
+      int len = -1;
+      while ((len = read(fd[0], buf, sizeof(buf) - 1)) > 0)
+      {
+        // todo: 过滤数据输出
+        printf("%s", buf);
+        memset(buf, 0, 1024);
+      }
+
+      wait(NULL);
+    }
+    else if (pid == 0)
+    {
+      close(fd[0]);
+      dup2(fd[1], STDOUT_FILENO); // 将标准输出重定向到管道的写端
+      execlp("ps", "ps", "aux", NULL); // 执行 ps aux，其输出将通过管道写端写入管道
+      perror("execlp");
+      exit(0);
+    }
+    else
+    {
+      perror("fork");
+      exit(EXIT_FAILURE);
+    }
+
+    return 0;
+  }
   ```
 
 - 设置管道非阻塞
