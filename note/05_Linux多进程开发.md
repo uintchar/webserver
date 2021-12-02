@@ -27,6 +27,19 @@
     - [4.2.1. 有名管道的特点](#421-有名管道的特点)
     - [4.2.2. 有名管道的使用](#422-有名管道的使用)
     - [4.2.3. 使用范例](#423-使用范例)
+  - [4.3. 内存映射](#43-内存映射)
+    - [4.3.1. 内存映射相关系统调用](#431-内存映射相关系统调用)
+    - [4.3.2. 使用范例](#432-使用范例)
+  - [4.4. 信号](#44-信号)
+    - [4.4.1. 信号的概念](#441-信号的概念)
+    - [4.4.2. Linux 信号一览](#442-linux-信号一览)
+    - [4.4.3. 信号的 5 种默认处理动作](#443-信号的-5-种默认处理动作)
+    - [4.4.4. 信号相关函数](#444-信号相关函数)
+    - [4.4.5. 信号捕捉函数](#445-信号捕捉函数)
+    - [4.4.6. 信号集](#446-信号集)
+    - [4.4.7. 阻塞信号集和未决信号集](#447-阻塞信号集和未决信号集)
+    - [4.4.8. 信号集相关函数](#448-信号集相关函数)
+    - [4.4.9. 内核实现信号捕捉的过程](#449-内核实现信号捕捉的过程)
 
 # 1. 进程概述
 
@@ -580,3 +593,210 @@
     return 0;
   }
   ```
+
+## 4.3. 内存映射
+
+### 4.3.1. 内存映射相关系统调用
+
+- `mmap`
+  
+  ```cpp {class=line-numbers}
+  /**
+    * @brief:
+    *  - 
+    * @param: 
+    *  - 
+    *  - 
+    * @return:
+    *  - 成功：
+    *  - 失败：
+    **/
+  ```
+
+- `munmap`
+
+  ```cpp {class=line-numbers}
+  /**
+    * @brief:
+    *  - 
+    * @param: 
+    *  - 
+    *  - 
+    * @return:
+    *  - 成功：
+    *  - 失败：
+    **/
+  ```
+
+### 4.3.2. 使用范例
+
+- 父子进程使用内存映射通信
+
+  ```cpp {class=line-numbers}
+  /**
+    * @brief:
+    *  - 
+    **/
+  ```
+
+- 普通进程使用内存映射通信
+
+  ```cpp {class=line-numbers}
+  /**
+    * @brief:
+    *  - 
+    **/
+  ```
+
+- 内存映射实现文件拷贝功能（文件不能太大）
+
+  ```cpp {class=line-numbers}
+  /**
+    * @brief:
+    *  - 
+    **/
+  ```
+
+- 匿名映射
+
+  ```cpp {class=line-numbers}
+  /**
+    * @brief:
+    *  - 
+    **/
+  ```
+
+## 4.4. 信号
+
+### 4.4.1. 信号的概念
+
+### 4.4.2. Linux 信号一览
+
+### 4.4.3. 信号的 5 种默认处理动作
+
+- 生成 core 文件 `ulimit -c new_size`
+
+### 4.4.4. 信号相关函数
+
+- `kill`
+
+  ```cpp {class=line-numbers}
+  /**
+    * @brief:
+    *  - 
+    * @param: 
+    *  - 
+    *  - 
+    * @return:
+    *  - 成功：
+    *  - 失败：
+    **/
+  ```
+- `raise`
+
+  ```cpp {class=line-numbers}
+  /**
+    * @brief:
+    *  - 
+    * @param: 
+    *  - 
+    *  - 
+    * @return:
+    *  - 成功：
+    *  - 失败：
+    **/
+  ```
+- `abort`
+
+  ```cpp {class=line-numbers}
+  /**
+    * @brief:
+    *  - 
+    * @param: 
+    *  - 
+    *  - 
+    * @return:
+    *  - 成功：
+    *  - 失败：
+    **/
+  ```
+
+- `alarm`
+
+  ```cpp {class=line-numbers}
+  /**
+    * @brief:
+    *  - 非阻塞
+    * @param: 
+    *  - 
+    *  - 
+    * @return:
+    *  - 成功：
+    *  - 失败：
+    **/
+  ```
+
+- `setitimer`
+
+  ```cpp {class=line-numbers}
+  /**
+    * @brief:
+    *  - 非阻塞
+    * @param: 
+    *  - 
+    *  - 
+    * @return:
+    *  - 成功：
+    *  - 失败：
+    **/
+  ```
+
+### 4.4.5. 信号捕捉函数
+
+- `signal`
+
+  ```cpp {class=line-numbers}
+  /**
+    * @brief:
+    *  - 
+    * @param: 
+    *  - 
+    *  - 
+    * @return:
+    *  - 成功：
+    *  - 失败：
+    **/
+  ```
+
+- `sigaction`
+
+  ```cpp {class=line-numbers}
+  /**
+    * @brief:
+    *  - 
+    * @param: 
+    *  - 
+    *  - 
+    * @return:
+    *  - 成功：
+    *  - 失败：
+    **/
+  ```
+
+### 4.4.6. 信号集
+
+### 4.4.7. 阻塞信号集和未决信号集
+
+### 4.4.8. 信号集相关函数
+
+```cpp {class=line-numbers}
+int sigemptyset(sigset_t *set);
+int sigfillset(sigset_t *set);
+int sigaddset(sigset_t *set, int signum);
+int sigdelset(sigset_t *set, int signum);
+int sigismember(const sigset_t *set, int signum);
+int sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
+int sigpending(sigset_t *set);
+```
+
+### 4.4.9. 内核实现信号捕捉的过程
