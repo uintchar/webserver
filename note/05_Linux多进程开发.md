@@ -40,6 +40,7 @@
     - [4.4.7. 阻塞信号集和未决信号集](#447-阻塞信号集和未决信号集)
     - [4.4.8. 信号集相关函数](#448-信号集相关函数)
     - [4.4.9. 内核实现信号捕捉的过程](#449-内核实现信号捕捉的过程)
+    - [SIGCHILD 信号](#sigchild-信号)
 
 # 1. 进程概述
 
@@ -799,4 +800,8 @@ int sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
 int sigpending(sigset_t *set);
 ```
 
+- 后台进程与前台进程
+
 ### 4.4.9. 内核实现信号捕捉的过程
+
+### SIGCHILD 信号
