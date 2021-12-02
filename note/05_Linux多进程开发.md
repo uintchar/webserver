@@ -25,6 +25,8 @@
     - [4.1.4. 使用范例](#414-使用范例)
   - [4.2. 有名管道 FIFO](#42-有名管道-fifo)
     - [有名管道 FIFO 的特点](#有名管道-fifo-的特点)
+    - [有名管道 FIFO 的使用](#有名管道-fifo-的使用)
+    - [使用范例](#使用范例)
 
 # 1. 进程概述
 
@@ -104,6 +106,17 @@
 - 从管道读数据是一次性操作，数据一旦被读走，它就从管道中被抛弃，释放空间以便写更多的数据，在管道中无法使用 `lseek()` 来随机的访问数据；
 - 匿名管道只能在具有公共祖先的进程（父进程与子进程，或者两个兄弟进程，具有亲缘关系）之间使用；因为父子进程之间共享打开的文件描述符，所以要先创建管道，再进行 `fork`；
 - 对于匿名管道，管道默认是阻塞的：如果管道中没有数据，`read` 阻塞，如果管道满了，`write` 阻塞；
+- 使用管道时，需要注意以下几种特殊的情况（假设都是阻塞I/O操作）
+  - 读管道：
+    - 管道中有数据：`read` 返回实际读到的字节数。
+    - 管道中无数据：
+      - 写端被全部关闭：`read` 返回 0（相当于读到文件的末尾）
+      - 写端未完全关闭：`read` 阻塞等待
+  - 写管道：
+    - 管道读端被全部关闭，进程异常终止（进程收到 `SIGPIPE` 信号）
+    - 管道读端未全部关闭：
+      - 管道已满：`write` 阻塞
+      - 管道未满：`write` 将数据写入，并返回实际写入的字节数
 
 ### 4.1.2. 管道的数据结构
 
@@ -282,11 +295,288 @@
 - 设置管道非阻塞
 
   ```cpp {class=line-numbers}
+  /**
+  * @description:
+  *  - 设置管道非阻塞
+  *  - int flags = fcntl(fd[0], F_GETFL)；
+  *  - flags |= O_NONBLOCK;
+  *  - fcntl(fd[0], F_SETFL, flags);
+  **/
 
+  #include <unistd.h>
+  #include <sys/types.h>
+  #include <stdio.h>
+  #include <stdlib.h>
+  #include <string.h>
+  #include <fcntl.h>
+
+  int main()
+  {
+
+    // 在fork之前创建管道
+    int pipefd[2];
+    if (pipe(pipefd) == -1)
+    {
+      perror("pipe");
+      exit(EXIT_FAILURE);
+    }
+
+    // 创建子进程
+    pid_t pid = fork();
+    if (pid > 0)
+    {
+      printf("i am parent process, pid : %d\n", getpid());
+      close(pipefd[1]);
+
+      char buf[1024] = {0};
+
+      int flags = fcntl(pipefd[0], F_GETFL); // 获取原来的 flag
+      flags |= O_NONBLOCK;                   // 修改 flag 的值
+      fcntl(pipefd[0], F_SETFL, flags);      // 设置新的 flag
+
+      while (1)
+      {
+        int len = read(pipefd[0], buf, sizeof(buf));
+        printf("len : %d\n", len);
+        printf("parent recv : %s, pid : %d\n", buf, getpid());
+        memset(buf, 0, 1024);
+        sleep(1);
+      }
+    }
+    else if (pid == 0)
+    {
+      printf("i am child process, pid : %d\n", getpid());
+      close(pipefd[0]);
+
+      char buf[1024] = {0};
+      while (1)
+      {
+        // 向管道中写入数据
+        const char *str = "hello,i am child";
+        write(pipefd[1], str, strlen(str) + 1);
+        sleep(5);
+      }
+    }
+    return 0;
+  }
   ```
 
 ## 4.2. 有名管道 FIFO
 
 ### 有名管道 FIFO 的特点
 
-- FIFO 不仅可以用于具有亲缘关系的进程间通信，还可以用于不存在亲缘关系的进程间通信
+- 有名管道有文件实体，提供了路径名与之关联，但不存储数据；
+- FIFO 不仅可以用于具有亲缘关系的进程间通信，还可以用于不存在亲缘关系的进程间通信；
+- FIFO 在文件系统中作为一个特殊文件存在，但 FIFO 中的内容却存放在内存中；
+- 当使用 FIFO 的进程退出后， FIFO 文件将继续保存在文件系统中以便以后使用；
+- 有名管道的注意事项：
+  - 一个为只读而打开一个管道的进程会阻塞，直到另外一个进程为只写打开管道
+  - 一个为只写而打开一个管道的进程会阻塞，直到另外一个进程为只读打开管道
+  - 读管道：
+    - 管道中有数据，`read` 返回实际读到的字节数
+    - 管道中无数据：
+      - 管道写端被全部关闭，`read` 返回0，（相当于读到文件末尾）
+      - 管道写端未全部关闭，`read` 阻塞等待
+  - 写管道：
+    - 管道读端被全部关闭：进程异常终止（收到一个 `SIGPIPE` 信号）
+    - 管道读端未全部关闭：
+      - 管道已满，`write` 会阻塞
+      - 管道未满，`write` 将数据写入，并返回实际写入的字节数。
+
+### 有名管道 FIFO 的使用
+
+- 创建有名管道
+
+```cpp {class=line-numbers}
+// 命令方式：
+mkfifo pipe_name
+
+// 函数方式：
+#include <sys/types.h>
+#include <sys/stat.h>
+int mkfifo(const char *pathname, mode_t mode);
+/**
+   * @brief:
+   *  - 创建一个有名管道，用来进程间通信
+   * @param: 
+   *  - const char *pathname: FIFO 管道的路径名
+   *  - mode_t mode: 文件访问权限设置
+   * @return:
+   *  - 成功：0
+   *  - 失败：-1，并设置错误号
+   **/
+```
+
+### 使用范例
+
+- 不同进程使用有名管道进行通信
+
+  ```cpp {class=line-numbers}
+  /**
+   * @brief:
+   *  - 进程 A 侧的程序代码
+   **/
+  #include <stdio.h>
+  #include <unistd.h>
+  #include <sys/types.h>
+  #include <sys/stat.h>
+  #include <stdlib.h>
+  #include <fcntl.h>
+  #include <string.h>
+
+  int main()
+  {
+    // 判断有名管道文件是否存在
+    if (access("fifo1", F_OK) == -1)
+    {
+      printf("管道不存在，创建对应的有名管道 fifo1\n");
+      if (mkfifo("fifo1", 0664) == -1)
+      {
+        perror("mkfifo");
+        exit(0);
+      }
+    }
+
+    if (access("fifo2", F_OK) == -1)
+    {
+      printf("管道不存在，创建对应的有名管道 fifo2\n");
+      if (mkfifo("fifo2", 0664) == -1)
+      {
+        perror("mkfifo");
+        exit(0);
+      }
+    }
+
+    // 以只写的方式打开管道 fifo1
+    int fdw = open("fifo1", O_WRONLY);
+    if (fdw == -1)
+    {
+      perror("open");
+      exit(0);
+    }
+    printf("打开管道fifo1成功，等待写入...\n");
+
+    // 以只读的方式打开管道fifo2
+    int fdr = open("fifo2", O_RDONLY);
+    if (fdr == -1)
+    {
+      perror("open");
+      exit(0);
+    }
+    printf("打开管道fifo2成功，等待读取...\n");
+
+    char buf[1024];
+
+    // 循环的写读数据
+    while (1)
+    {
+      memset(buf, 0, 1024);
+      fgets(buf, 1024, stdin); // 会读取换行符
+      int len = write(fdw, buf, strlen(buf));
+      if (len == -1)
+      {
+        perror("write");
+        exit(0);
+      }
+
+      memset(buf, 0, 1024);
+      len = read(fdr, buf, 1024);
+      if (len <= 0)
+      {
+        perror("read");
+        break;
+      }
+      printf("buf: %s\n", buf);
+    }
+
+    close(fdr);
+    close(fdw);
+
+    return 0;
+  }
+  ```
+
+  ```cpp {class=line-numbers}
+  /**
+   * @brief:
+   *  - 进程 B 侧的程序代码
+   **/
+  #include <stdio.h>
+  #include <unistd.h>
+  #include <sys/types.h>
+  #include <sys/stat.h>
+  #include <stdlib.h>
+  #include <fcntl.h>
+  #include <string.h>
+
+  int main()
+  {
+    // 判断有名管道文件是否存在
+    if (access("fifo1", F_OK) == -1)
+    {
+      printf("管道不存在，创建对应的有名管道 fifo1\n");
+      if (mkfifo("fifo1", 0664) == -1)
+      {
+        perror("mkfifo");
+        exit(0);
+      }
+    }
+
+    if (access("fifo2", F_OK) == -1)
+    {
+      printf("管道不存在，创建对应的有名管道 fifo2\n");
+      if (mkfifo("fifo2", 0664) == -1)
+      {
+        perror("mkfifo");
+        exit(0);
+      }
+    }
+
+    // 以只读的方式打开管道 fifo1
+    int fdr = open("fifo1", O_RDONLY);
+    if (fdr == -1)
+    {
+      perror("open");
+      exit(0);
+    }
+    printf("打开管道fifo1成功，等待读取...\n");
+    
+    // 以只写的方式打开管道 fifo2
+    int fdw = open("fifo2", O_WRONLY);
+    if (fdw == -1)
+    {
+      perror("open");
+      exit(0);
+    }
+    printf("打开管道fifo2成功，等待写入...\n");
+
+    char buf[1024];
+
+    // 循环的读写数据
+    while (1)
+    {
+      memset(buf, 0, 1024);
+      int len = read(fdr, buf, 1024);
+      if (len <= 0)
+      {
+        perror("read");
+        break;
+      }
+      printf("buf: %s\n", buf);
+
+      memset(buf, 0, 1024);
+      fgets(buf, 1024, stdin); // 会读取换行符
+      len = write(fdw, buf, strlen(buf));
+      if (len == -1)
+      {
+        perror("write");
+        exit(0);
+      }
+    }
+
+    close(fdr);
+    close(fdw);
+
+    return 0;
+  }
+  ```
