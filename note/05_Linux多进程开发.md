@@ -24,8 +24,8 @@
     - [4.1.3. 匿名管道的使用](#413-匿名管道的使用)
     - [4.1.4. 使用范例](#414-使用范例)
   - [4.2. 有名管道 FIFO](#42-有名管道-fifo)
-    - [4.2.1. 有名管道 FIFO 的特点](#421-有名管道-fifo-的特点)
-    - [4.2.2. 有名管道 FIFO 的使用](#422-有名管道-fifo-的使用)
+    - [4.2.1. 有名管道的特点](#421-有名管道的特点)
+    - [4.2.2. 有名管道的使用](#422-有名管道的使用)
     - [4.2.3. 使用范例](#423-使用范例)
 
 # 1. 进程概述
@@ -363,7 +363,7 @@
 
 ## 4.2. 有名管道 FIFO
 
-### 4.2.1. 有名管道 FIFO 的特点
+### 4.2.1. 有名管道的特点
 
 - 有名管道有文件实体，提供了路径名与之关联，但不存储数据；
 - FIFO 不仅可以用于具有亲缘关系的进程间通信，还可以用于不存在亲缘关系的进程间通信；
@@ -383,29 +383,29 @@
       - 管道已满，`write` 会阻塞
       - 管道未满，`write` 将数据写入，并返回实际写入的字节数。
 
-### 4.2.2. 有名管道 FIFO 的使用
+### 4.2.2. 有名管道的使用
 
 - 创建有名管道
 
-```cpp {class=line-numbers}
-// 命令方式：
-mkfifo pipe_name
+  ```cpp {class=line-numbers}
+  // 命令方式：
+  mkfifo pipe_name
 
-// 函数方式：
-#include <sys/types.h>
-#include <sys/stat.h>
-int mkfifo(const char *pathname, mode_t mode);
-/**
-   * @brief:
-   *  - 创建一个有名管道，用来进程间通信
-   * @param: 
-   *  - const char *pathname: FIFO 管道的路径名
-   *  - mode_t mode: 文件访问权限设置
-   * @return:
-   *  - 成功：0
-   *  - 失败：-1，并设置错误号
-   **/
-```
+  // 函数方式：
+  #include <sys/types.h>
+  #include <sys/stat.h>
+  int mkfifo(const char *pathname, mode_t mode);
+  /**
+     * @brief:
+     *  - 创建一个有名管道，用来进程间通信
+     * @param: 
+     *  - const char *pathname: FIFO 管道的路径名
+     *  - mode_t mode: 文件访问权限设置
+     * @return:
+     *  - 成功：0
+     *  - 失败：-1，并设置错误号
+     **/
+  ```
 
 ### 4.2.3. 使用范例
 
