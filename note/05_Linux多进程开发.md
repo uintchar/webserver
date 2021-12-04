@@ -52,6 +52,7 @@
     - [4.6.3. 会话](#463-会话)
     - [4.6.4. 进程组、会话操作函数](#464-进程组会话操作函数)
     - [4.6.5. 守护进程](#465-守护进程)
+    - [4.6.6. 使用范例](#466-使用范例)
 
 # 1. 进程概述
 
@@ -875,14 +876,162 @@ int sigpending(sigset_t *set);
 #include <sys/types.h>
 #include <unistd.h>
 
-int setpgid(pid_t pid, pid_t pgid);
 pid_t getpgid(pid_t pid);
+/**
+  * @brief:
+  *  - 获取进程号为 pid 的进程的进程组 id；
+  *  - 如果 pid 设为 0，则获取的是调用此函数的进程的进程组 id；
+  * @param: 
+  *  - pid_t pid
+  * @return:
+  *  - 成功：进程组 id
+  *  - 失败：-1，并设置 errno
+  **/
 
-pid_t getpgrp(void);                 /* POSIX.1 version */
-pid_t getpgrp(pid_t pid);            /* BSD version */
+pid_t getpgrp(void); // POSIX.1 version
+/**
+  * @brief:
+  *  - 获取调用进程的进程组 id；
+  * @param: 
+  * @return:
+  **/
 
-int setpgrp(void);                   /* System V version */
-int setpgrp(pid_t pid, pid_t pgid);  /* BSD version */
+pid_t getpgrp(pid_t pid); // BSD version
+/**
+  * @brief:
+  * @param: 
+  * @return:
+  **/
+
+int setpgid(pid_t pid, pid_t pgid);
+/**
+  * @brief:
+  *  - 将进程号为 pid 的进程的进程组设为 pgid；
+  *  - 如果 pid 为 0，则使用调用进程的 pid；如果 pgid 为 0，则设置由 pid 指定的进程的 pgid 和该进程的 pgid 相同；
+  *  - 将一个进程从一个进程组移动到另一个进程组时，两个进程组必须属于同一个会话；
+  * @param: 
+  *  - pid_t pid
+  *  - pid_t pgid
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+
+int setpgrp(void); // System V version
+/**
+  * @brief:
+  *  - 等效于 setpgid(0, 0)
+  * @param: 
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+
+int setpgrp(pid_t pid, pid_t pgid);  // BSD version
+/**
+  * @brief:
+  * @param: 
+  * @return:
+  **/
+
+// 获取和设置会话 id
+pid_t getsid(pid_t pid);
+pid_t setsid(void);
 ```
 
 ### 4.6.5. 守护进程
+
+- 守护进程（Daemon Process），也就是通常说的 Daemon 进程（精灵进程），是 Linux 中的后台服务进程。它是一个生存期较长的进程，通常独立于控制终端并且周
+期性地执行某种任务或等待处理某些发生的事件。一般采用以 d 结尾的名字；
+- 守护进程具备下列特征：
+  - 生命周期很长，守护进程会在系统启动的时候被创建并一直运行直至系统被关闭；
+  - 在后台运行并且不拥有控制终端。没有控制终端确保了内核永远不会为守护进程自动生成任何控制信号以及终端相关的信号（如 `SIGINT`、 `SIGQUIT`）;
+- Linux 的大多数服务器就是用守护进程实现的。比如， Internet 服务器 inetd，Web 服务器 httpd 等；
+- 守护进程的创建步骤：
+  - 执行一个 `fork()`，之后父进程退出，子进程继续执行；
+  - 子进程调用 `setsid()` 开启一个新会话；
+  - 清除进程的 `umask` 以确保当守护进程创建文件和目录时拥有所需的权限；
+  - 修改进程的当前工作目录，通常会改为根目录（/）；
+  - 关闭守护进程从其父进程继承而来的所有打开着的文件描述符；
+  - 在关闭了文件描述符 0、 1、 2 之后，守护进程通常会打开 `/dev/null` 并使用 `dup2()` 使所有这些描述符指向这个设备；
+  - 核心业务逻辑；
+
+### 4.6.6. 使用范例
+
+- **实现一个每 1s 向磁盘文件打印当前系统时间的守护进程**
+
+  ```cpp {class=line-numbers}
+  #include <stdio.h>
+  #include <sys/stat.h>
+  #include <sys/types.h>
+  #include <unistd.h>
+  #include <fcntl.h>
+  #include <sys/time.h>
+  #include <signal.h>
+  #include <time.h>
+  #include <stdlib.h>
+  #include <string.h>
+
+  // 捕捉到信号之后，获取系统时间，写入磁盘文件
+  void work(int num)
+  {
+    time_t abs_tm = time(NULL); // 返回自 Epoch 1970-01-01 00:00:00 +0000 (UTC) 时到当前时刻所经过的秒数
+    struct tm *loc_tm = localtime(&abs_tm);
+    char *str = asctime(loc_tm);
+
+    int fd = open("time.txt", O_RDWR | O_CREAT | O_APPEND, 0664);
+    write(fd, str, strlen(str));
+    close(fd);
+  }
+
+  int main()
+  {
+    // 创建子进程，退出父进程
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+      perror("fork");
+      exit(EXIT_FAILURE);
+    }
+    else if (pid > 0)
+    {
+      exit(0);
+    }
+
+    // 将子进程重新创建一个会话
+    setsid();
+
+    // 设置掩码
+    umask(022);
+
+    // 更改工作目录
+    chdir("/home/hrl/");
+
+    // 关闭、重定向文件描述符
+    int fd = open("/dev/null", O_RDWR);
+    dup2(fd, STDIN_FILENO);
+    dup2(fd, STDOUT_FILENO);
+    dup2(fd, STDERR_FILENO);
+
+    // 业务逻辑：使用周期性定时器实现每秒向磁盘文件写入当前系统时间
+    struct sigaction sig_act;
+    sig_act.sa_flags = 0;
+    sig_act.sa_handler = work;
+    sigemptyset(&sig_act.sa_mask);
+    sigaction(SIGALRM, &sig_act, NULL);
+
+    struct itimerval it_val;
+    it_val.it_value.tv_sec = 1;
+    it_val.it_value.tv_usec = 0;
+    it_val.it_interval.tv_sec = 1;
+    it_val.it_interval.tv_usec = 0;
+
+    // 创建定时器
+    setitimer(ITIMER_REAL, &it_val, NULL);
+
+    // 使后台进程一直运行
+    while (1);
+
+    return 0;
+  }
+  ```
