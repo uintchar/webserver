@@ -718,7 +718,7 @@ int prlimit(pid_t pid, int resource, const struct rlimit *new_limit, struct rlim
 
 编号 | 信号名称 | 对应事件 | 默认动作
 :-: | :------: | :------- | :- 
-1  | SIGHUP    | 用户退出 shell 时，由该shell启动的所有进程将收到这个信号 | 终止进程
+1  | SIGHUP    | 用户退出 shell 时，由该 shell 启动的所有进程将收到这个信号 | 终止进程
 2  | SIGINT    | 当用户按下了 `Ctrl+C` 组合键时，用户终端向正在运行中的由该终端启动的程序发出此信号 | 终止进程
 3  | SIGQUIT   | 用户按下 `Ctrl+\` 组合键时产生该信号，用户终端向正在运行中的由该终端启动的程序发出些信号 | 终止进程
 4  | SIGILL    | CPU 检测到某进程执行了非法指令 | 终止进程并产生core文件
@@ -766,79 +766,96 @@ int prlimit(pid_t pid, int resource, const struct rlimit *new_limit, struct rlim
 
 ### 4.4.4. 信号相关函数
 
-- `kill`
+```cpp {class=line-numbers}
+int kill(pid_t pid, int sig);
+int raise(int sig);
+void abort(void);
+unsigned int alarm(unsigned int seconds);
+int setitimer(int which, const struct itimerval *new_val, struct itimerval *old_value);
+int getitimer(int which, struct itimerval *curr_value);
 
-  ```cpp {class=line-numbers}
-  /**
-    * @brief:
-    *  - 
-    * @param: 
-    *  - 
-    *  - 
-    * @return:
-    *  - 成功：
-    *  - 失败：
-    **/
-  ```
-- `raise`
+#include <sys/types.h>
+#include <signal.h>
+int kill(pid_t pid, int sig);
+/**
+  * @brief:
+  *  - 向任何进程或者进程组发送任意的信号
+  * @param: 
+  *  - pit_t pid：指定的进程或者进程组 id
+  *   - pid > 0：向指定的进程发送信号
+  *   - pid = 0：向调用进程所在的进程组发送信号
+  *   - pid = -1：向任何具有接收该信号权限的进程发送信号
+  *   - pid < -1：向指定的进程组发送信号，进程组 id 取绝对值
+  *  - int sig：发送信号的编号或者宏值，为 0 表示不发送信号
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
 
-  ```cpp {class=line-numbers}
-  /**
-    * @brief:
-    *  - 
-    * @param: 
-    *  - 
-    *  - 
-    * @return:
-    *  - 成功：
-    *  - 失败：
-    **/
-  ```
+#include <signal.h>
+int raise(int sig);
+/**
+  * @brief:
+  *  - 给调用进程或线程发送指定的信号，如果信号导致调用一个信号处理程序，则 raise() 将在处理程序返回之后再返回
+  *  - 在单线程程序中等价于 kill(getpid(), sig)
+  *  - 在多线程程序中等价于 pthread_kill(pthread_self(), sig)
+  * @param: 
+  *  - int sig：信号的编号或者宏值
+  * @return:
+  *  - 成功：0
+  *  - 失败：非 0
+  **/
 
-- `abort`
+#include <stdlib.h>
+void abort(void);
+/**
+  * @brief:
+  *  - 首先解阻塞 SIGABRT 信号，然后向当前进程发送 SIGABRT 信号
+  *  - 这会使得进程异常终止，除非捕获 SIGABRT 信号且信号处理程序不返回
+  * @param: 
+  *  - void
+  * @return:
+  *  - void
+  **/
 
-  ```cpp {class=line-numbers}
-  /**
-    * @brief:
-    *  - 
-    * @param: 
-    *  - 
-    *  - 
-    * @return:
-    *  - 成功：
-    *  - 失败：
-    **/
-  ```
+#include <unistd.h>
+unsigned int alarm(unsigned int seconds);
+/**
+  * @brief:
+  *  - 在定时指定秒数后向调用进程发送 SIGALRM 信号，默认会终止调用进程
+  *  - 可以捕捉该信号并执行特定的定时任务，从而实现定时器的功能
+  *  - 每个进程只能由一个 alarm 定时器，且 alarm 计时与进程的状态无关（自然定时法） 
+  * @param: 
+  *  - unsigned int seconds：定时的秒数，当为 0 时，不执行任何动作或者取消原来设置的定时器
+  * @return:
+  *  - 如果先前没有设置定时器，则返回 0；否则返回先前定时器剩余的秒数
+  **/
 
-- `alarm`
+#include <sys/time.h>
+int setitimer(int which, const struct itimerval *new_val, struct itimerval *old_value);
+/**
+  * @brief:
+  *  - 
+  * @param: 
+  *  - 
+  *  - 
+  * @return:
+  *  - 成功：
+  *  - 失败：
+  **/
 
-  ```cpp {class=line-numbers}
-  /**
-    * @brief:
-    *  - 非阻塞
-    * @param: 
-    *  - 
-    *  - 
-    * @return:
-    *  - 成功：
-    *  - 失败：
-    **/
-  ```
-
-- `setitimer`
-
-  ```cpp {class=line-numbers}
-  /**
-    * @brief:
-    *  - 非阻塞
-    * @param: 
-    *  - 
-    *  - 
-    * @return:
-    *  - 成功：
-    *  - 失败：
-    **/
-  ```
+int getitimer(int which, struct itimerval *curr_value);
+/**
+  * @brief:
+  *  - 
+  * @param: 
+  *  - 
+  *  - 
+  * @return:
+  *  - 成功：
+  *  - 失败：
+  **/
+```
 
 ### 4.4.5. 信号捕捉函数
 
