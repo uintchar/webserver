@@ -39,7 +39,6 @@
     - [4.4.5. 信号捕捉函数](#445-信号捕捉函数)
     - [4.4.6. 信号集](#446-信号集)
     - [4.4.7. 内核实现信号捕捉的过程](#447-内核实现信号捕捉的过程)
-    - [4.4.8. SIGCHILD 信号](#448-sigchild-信号)
   - [4.5. 共享内存](#45-共享内存)
     - [4.5.1. 共享内存的概念](#451-共享内存的概念)
     - [4.5.2. 共享内存的使用步骤](#452-共享内存的使用步骤)
@@ -732,7 +731,7 @@ int prlimit(pid_t pid, int resource, const struct rlimit *new_limit, struct rlim
 14 | SIGALRM   | 定时器超时，超时的时间由系统调用 `alarm` 设置 | 终止进程
 15 | SIGTERM   | 程序结束信号，与 SIGKILL 不同的是，该信号可以被阻塞和终止。通常用来要示程序正常退出。执行shell命令Kill时，缺省产生这个信号 | 终止进程
 16 | SIGSTKFLT | Linux 早期版本出现的信号，现仍保留向后兼容 | 终止进程
-17 | SIGCHLD   | 子进程结束时，父进程会收到这个信号 | 忽略这个信号
+17 | SIGCHLD   | 子进程结束时(终止、收到 SIGSTOP 停止、处在停止态收到 SIGCONT 唤醒），父进程会收到这个信号 | 忽略这个信号
 18 | SIGCONT   | 如果进程已停止，则使其继续运行 | 继续/忽略
 19 | SIGSTOP   | 停止进程的执行。信号不能被忽略，处理和阻塞 | 为终止进程
 20 | SIGTSTP   | 停止终端交互进程的运行。按下 `ctrl+z` 组合键时发出这个信号 | 暂停进程
@@ -924,20 +923,97 @@ int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact)
 
 ```cpp {class=line-numbers}
 // 信号集相关函数
+
+#include <signal.h>
+
 int sigemptyset(sigset_t *set);
+/**
+  * @brief:
+  *  - 清空信号集中的数据，将信号集中的所有的标志位置为0
+  * @param: 
+  *  - sigset_t *set：传出参数，需要操作的信号集
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+
 int sigfillset(sigset_t *set);
+/**
+  * @brief:
+  *  - 将信号集中的所有的标志位置为1
+  * @param: 
+  *  - sigset_t *set：需要操作的信号集
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+
 int sigaddset(sigset_t *set, int signum);
+/**
+  * @brief:
+  *  - 设置信号集中的某一个信号对应的标志位为1，表示阻塞这个信号
+  * @param: 
+  *  - sigset_t *set：需要操作的信号集
+  *  - int signum：需要设置阻塞的信号
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置错误号
+  **/
+
 int sigdelset(sigset_t *set, int signum);
+/**
+  * @brief:
+  *  - 设置信号集中的某一个信号对应的标志位为 0，表示不阻塞这个信号
+  * @param: 
+  *  - sigset_t *set：需要操作的信号集
+  *  - int signum：需要解除阻塞的信号
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+
 int sigismember(const sigset_t *set, int signum);
+/**
+  * @brief:
+  *  - 判断某个信号是否阻塞
+  * @param: 
+  *  - const sigset_t *set：需要操作的信号集
+  *  - int signum：需要判断的信号
+  * @return:
+  *  - 成功：1 表示 signum 被阻塞；0 表示不阻塞
+  *  - 失败：-1，并设置 errno
+  **/
+
 int sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
+/**
+  * @brief:
+  *  - 
+  * @param: 
+  *  - 
+  *  - 
+  * @return:
+  *  - 成功：
+  *  - 失败：
+  **/
+
 int sigpending(sigset_t *set);
+/**
+  * @brief:
+  *  - 
+  * @param: 
+  *  - 
+  *  - 
+  * @return:
+  *  - 成功：
+  *  - 失败：
+  **/
+
+// 应用范例
 ```
 
 ### 4.4.7. 内核实现信号捕捉的过程
 
 ![内核实现信号捕捉的过程](webserver/note/figure/内核实现信号捕捉的过程.JPG)
-
-### 4.4.8. SIGCHILD 信号
 
 ## 4.5. 共享内存
 
