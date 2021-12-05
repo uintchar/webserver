@@ -782,10 +782,10 @@ int kill(pid_t pid, int sig);
   *  - 向任何进程或者进程组发送任意的信号
   * @param: 
   *  - pit_t pid：指定的进程或者进程组 id
-  *   - pid > 0：向指定的进程发送信号
-  *   - pid = 0：向调用进程所在的进程组发送信号
-  *   - pid = -1：向任何具有接收该信号权限的进程发送信号
-  *   - pid < -1：向指定的进程组发送信号，进程组 id 取绝对值
+  *    - pid > 0：向指定的进程发送信号
+  *    - pid = 0：向调用进程所在的进程组发送信号
+  *    - pid = -1：向任何具有接收该信号权限的进程发送信号
+  *    - pid < -1：向指定的进程组发送信号，进程组 id 取绝对值
   *  - int sig：发送信号的编号或者宏值，为 0 表示不发送信号
   * @return:
   *  - 成功：0
@@ -835,25 +835,39 @@ unsigned int alarm(unsigned int seconds);
 int setitimer(int which, const struct itimerval *new_val, struct itimerval *old_value);
 /**
   * @brief:
-  *  - 
+  *  - 在延迟指定时间后向调用进程发送指定信号，之后按照指定间隔周期性地发送指定信号
+  *  - 可以作为周期性的定时器，定时精度为微妙
   * @param: 
-  *  - 
-  *  - 
+  *  - int which：设置定时器以何种时间标准进行定时
+  *    - ITIMER_REAL：真实时间，到期发送 SIGALRM
+  *    - ITIMER_VIRTUAL：进程的用户态所消耗的 CPU 时间，到期发送 SIGVTALRM
+  *    - ITIMER_PROF：进程的用户态和内核态消耗的总的 CPU 时间（包括该进程下的所有线程），到期发送 SIGPROF
+  *    - 一个进程只能拥有以上三种类型定时器中的一种
+  *  - const struct itimerval *new_val：设置定时器的属性
+       struct itimerval
+       {
+         struct timeval it_interval; // 定时周期，若为 0，则为非周期定时器
+         struct timeval it_value;    // 定时器超时时间，首次超时后被重置为 it_interval；若为 0，则关闭定时器
+       };
+       struct timeval
+       {
+         time_t tv_sec;       //  秒数
+         suseconds_t tv_usec; //  微秒
+       };
+  *  - struct itimerval *old_value：获取先前定时器的属性
   * @return:
-  *  - 成功：
-  *  - 失败：
+  *  - 成功：0
+  *  - 失败：-1，并设置错误号
   **/
 
 int getitimer(int which, struct itimerval *curr_value);
 /**
   * @brief:
-  *  - 
+  *  - 获取定时器的属性
   * @param: 
-  *  - 
-  *  - 
   * @return:
-  *  - 成功：
-  *  - 失败：
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
   **/
 ```
 
