@@ -30,7 +30,7 @@
     - [4.2.3. 使用范例](#423-使用范例)
   - [4.3. 内存映射](#43-内存映射)
     - [4.3.1. 内存映射相关系统调用](#431-内存映射相关系统调用)
-    - [4.3.2. 使用范例](#432-使用范例)
+    - [4.3.2. 应用范例](#432-应用范例)
   - [4.4. 信号](#44-信号)
     - [4.4.1. 信号的概念](#441-信号的概念)
     - [4.4.2. Linux 信号一览](#442-linux-信号一览)
@@ -39,18 +39,24 @@
     - [4.4.5. 信号捕捉函数](#445-信号捕捉函数)
     - [4.4.6. 信号集](#446-信号集)
     - [4.4.7. 内核实现信号捕捉的过程](#447-内核实现信号捕捉的过程)
+    - [4.4.8. 多线程中的信号处理机制](#448-多线程中的信号处理机制)
+    - [4.4.9. 应用范例](#449-应用范例)
+      - [4.4.9.1. 信号捕捉实现周期性定时器](#4491-信号捕捉实现周期性定时器)
+      - [4.4.9.2. 使用SIGCHLD信号解决僵尸进程的问题](#4492-使用sigchld信号解决僵尸进程的问题)
+      - [4.4.9.3. 信号集操作函数范例](#4493-信号集操作函数范例)
   - [4.5. 共享内存](#45-共享内存)
     - [4.5.1. 共享内存的概念](#451-共享内存的概念)
     - [4.5.2. 共享内存的使用步骤](#452-共享内存的使用步骤)
     - [4.5.3. 共享内存操作函数](#453-共享内存操作函数)
-    - [4.5.4. 使用范例](#454-使用范例)
+    - [4.5.4. 应用范例](#454-应用范例)
   - [4.6. 守护进程](#46-守护进程)
     - [4.6.1. 终端](#461-终端)
     - [4.6.2. 进程组](#462-进程组)
     - [4.6.3. 会话](#463-会话)
     - [4.6.4. 进程组、会话操作函数](#464-进程组会话操作函数)
     - [4.6.5. 守护进程](#465-守护进程)
-    - [4.6.6. 使用范例](#466-使用范例)
+    - [4.6.6. 应用范例](#466-应用范例)
+      - [4.6.6.1. 每 1s 向磁盘文件打印当前系统时间的守护进程](#4661-每-1s-向磁盘文件打印当前系统时间的守护进程)
 
 # 1. 进程概述
 
@@ -654,7 +660,7 @@ int prlimit(pid_t pid, int resource, const struct rlimit *new_limit, struct rlim
     **/
   ```
 
-### 4.3.2. 使用范例
+### 4.3.2. 应用范例
 
 - 父子进程使用内存映射通信
 
@@ -717,7 +723,7 @@ int prlimit(pid_t pid, int resource, const struct rlimit *new_limit, struct rlim
 :-: | :------: | :------- | :- 
 1  | SIGHUP    | 用户退出 shell 时，由该 shell 启动的所有进程将收到这个信号 | 终止进程
 2  | SIGINT    | 当用户按下了 `Ctrl+C` 组合键时，用户终端向正在运行中的由该终端启动的程序发出此信号 | 终止进程
-3  | SIGQUIT   | 用户按下 `Ctrl+\` 组合键时产生该信号，用户终端向正在运行中的由该终端启动的程序发出些信号 | 终止进程
+3  | SIGQUIT   | 用户按下 `Ctrl+\` 组合键时产生该信号，用户终端向正在运行中的由该终端启动的进程发出些信号 | 终止进程
 4  | SIGILL    | CPU 检测到某进程执行了非法指令 | 终止进程并产生core文件
 5  | SIGTRAP   | 该信号由断点指令或其他 `trap` 指令产生 | 终止进程并产生core文件
 6  | SIGABRT   | 调用 `abort` 函数时产生该信号 | 终止进程并产生core文件
@@ -918,6 +924,7 @@ int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact)
 
 - 许多信号相关的系统调用都需要能表示一组不同的信号，多个信号可使用一个称之为信号集的数据结构来表示，其系统数据类型为 `sigset_t`
 - 在 PCB 中有两个非常重要的信号集。一个称之为**阻塞信号集** ，另一个称之为**未决信号集**。这两个信号集都是内核使用位图机制来实现的。但操作系统不允许我们直接对这两个信号集进行位操作。而需自定义另外一个集合，借助信号集操作函数来对 PCB 中的这两个信号集进行修改
+- **对于多线程的进程而言，每一个线程都具有独立的信号掩码**
 - 信号的 “未决” 是一种状态，指的是从信号的产生到信号被处理前的这一段时间；信号的 “阻塞” 是一个开关动作，指的是阻止信号被处理，但不是阻止信号产生
 - 信号的阻塞就是让系统暂时保留信号留待以后发送。由于另外有办法让系统忽略信号，所以一般情况下信号的阻塞只是暂时的，只是为了防止信号打断敏感的操作
 
@@ -987,33 +994,275 @@ int sigismember(const sigset_t *set, int signum);
 int sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
 /**
   * @brief:
-  *  - 
+  *  - 将自定义信号集中的数据设置到内核中（设置阻塞，解除阻塞，替换）
+  *  - 在多线程进程中未指定 sigprocmask 的使用，应使用 pthread_sigmask()
   * @param: 
-  *  - 
+  *  - int how:
+  *    - SIG_BLOCK：将用户设置的阻塞信号集添加到内核中，内核中原来的数据不变。假设内核中默认的阻塞信号集是 mask，mask | set
+  *    - SIG_UNBLOCK：根据用户设置的数据，对内核中的数据进行解除阻塞 mask &= ~set
+  *    - SIG_SETMASK：覆盖内核中原来的值
   *  - 
   * @return:
-  *  - 成功：
-  *  - 失败：
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
   **/
 
 int sigpending(sigset_t *set);
 /**
   * @brief:
-  *  - 
+  *  - 获取内核中的未决信号集
   * @param: 
-  *  - 
-  *  - 
+  *  - sigset_t *set：传出参数，保存的时内核中的未决信号集中的信息
   * @return:
-  *  - 成功：
-  *  - 失败：
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
   **/
-
-// 应用范例
 ```
 
 ### 4.4.7. 内核实现信号捕捉的过程
 
+- 用户通过键盘  Ctrl + C, 产生 2 号信号 SIGINT (信号被创建)
+- 信号产生但是没有被处理（未决）
+  - 在内核中将所有的没有被处理的信号存储在一个集合中 （未决信号集）
+  - SIGINT 信号状态被存储在第二个标志位上
+    - 这个标志位的值为 0，说明信号不是未决状态
+    - 这个标志位的值为 1，说明信号处于未决状态
+- 这个未决状态的信号，需要被处理，处理之前需要和另一个信号集（阻塞信号集）进行比较
+  - 阻塞信号集默认不阻塞任何的信号
+  - 如果想要阻塞某些信号需要用户调用系统的API
+- 在处理的时候和阻塞信号集中的标志位进行查询，看是不是对该信号设置阻塞了
+  - 如果没有阻塞，这个信号就被处理
+  - 如果阻塞了，这个信号就继续处于未决状态，直到阻塞解除，这个信号就被处理
+
 ![内核实现信号捕捉的过程](webserver/note/figure/内核实现信号捕捉的过程.JPG)
+
+### 4.4.8. 多线程中的信号处理机制
+
+### 4.4.9. 应用范例
+
+#### 4.4.9.1. 信号捕捉实现周期性定时器
+
+```cpp {class=line-numbers}
+/**
+ * @description:
+ *  - 使用 setitimer() 和信号捕捉实现周期性定时任务
+ **/
+#include <sys/time.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <signal.h>
+
+void myalarm(int num)
+{
+  printf("捕捉到了信号的编号是：%d\n", num);
+  printf("xxxxxxx\n");
+}
+
+int main()
+{
+  struct sigaction act;
+  act.sa_flags = 0;
+  act.sa_handler = myalarm;
+  sigemptyset(&act.sa_mask);
+  sigaction(SIGALRM, &act, NULL);
+
+  struct itimerval new_value;
+  new_value.it_interval.tv_sec = 2;
+  new_value.it_interval.tv_usec = 0;
+  new_value.it_value.tv_sec = 3;
+  new_value.it_value.tv_usec = 0;
+
+  int ret = setitimer(ITIMER_REAL, &new_value, NULL);
+  printf("定时器开始了...\n");
+
+  if (ret == -1)
+  {
+    perror("setitimer");
+    exit(0);
+  }
+
+  while (1) ;
+
+  return 0;
+}
+```
+
+#### 4.4.9.2. 使用SIGCHLD信号解决僵尸进程的问题
+
+```cpp {class=line-numbers}
+/**
+ * @description:
+ *  - 使用SIGCHLD信号解决僵尸进程的问题
+ **/
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <signal.h>
+#include <sys/wait.h>
+
+void myFun(int num)
+{
+  printf("捕捉到的信号 ：%d\n", num);
+  while (1)
+  {
+    int ret = waitpid(-1, NULL, WNOHANG);
+    if (ret > 0)
+      printf("child die , pid = %d\n", ret);
+    else if (ret == 0)
+      break; // 说明还有子进程或者
+    else if (ret == -1)
+      break; // 没有子进程
+  }
+}
+
+int main()
+{
+  // 提前设置好阻塞信号集，阻塞 SIGCHLD，因为有可能子进程很快结束，父进程还没有注册完信号捕捉
+  sigset_t set;
+  sigemptyset(&set);
+  sigaddset(&set, SIGCHLD);
+  sigprocmask(SIG_BLOCK, &set, NULL);
+
+  // 创建一些子进程
+  pid_t pid;
+  for (int i = 0; i < 20; i++)
+  {
+    pid = fork();
+    if (pid == 0)
+      break;
+  }
+
+  if (pid > 0)
+  {
+    // 捕捉子进程死亡时发送的 SIGCHLD 信号
+    struct sigaction act;
+    act.sa_flags = 0;
+    act.sa_handler = myFun;
+    sigemptyset(&act.sa_mask);
+    sigaction(SIGCHLD, &act, NULL);
+
+    // 注册完信号捕捉以后，解除阻塞
+    sigprocmask(SIG_UNBLOCK, &set, NULL);
+
+    while (1)
+    {
+      printf("parent process pid : %d\n", getpid());
+      sleep(2);
+    }
+  }
+  else if (pid == 0)
+  {
+    printf("child process pid : %d\n", getpid());
+  }
+
+  return 0;
+}
+```
+
+#### 4.4.9.3. 信号集操作函数范例
+
+```cpp {class=line-numbers}
+/**
+ * @description:
+ *  - 对常用信号集操作函数的简单练习
+ **/
+#include <signal.h>
+#include <stdio.h>
+
+int main()
+{
+  // 创建一个信号集
+  sigset_t set;
+
+  // 清空信号集的内容
+  sigemptyset(&set);
+
+  // 判断 SIGINT 是否在信号集 set 里
+  int ret = sigismember(&set, SIGINT);
+  if (ret == 0) printf("SIGINT 不阻塞\n");
+  else if (ret == 1) printf("SIGINT 阻塞\n");
+
+  // 添加几个信号到信号集中
+  sigaddset(&set, SIGINT);
+  sigaddset(&set, SIGQUIT);
+
+  // 判断SIGINT是否在信号集中
+  ret = sigismember(&set, SIGINT);
+  if (ret == 0) printf("SIGINT 不阻塞\n");
+  else if (ret == 1) printf("SIGINT 阻塞\n");
+
+  // 判断SIGQUIT是否在信号集中
+  ret = sigismember(&set, SIGQUIT);
+  if (ret == 0) printf("SIGQUIT 不阻塞\n");
+  else if (ret == 1) printf("SIGQUIT 阻塞\n");
+
+  // 从信号集中删除一个信号
+  sigdelset(&set, SIGQUIT);
+
+  // 判断SIGQUIT是否在信号集中
+  ret = sigismember(&set, SIGQUIT);
+  if (ret == 0) printf("SIGQUIT 不阻塞\n");
+  else if (ret == 1) printf("SIGQUIT 阻塞\n");
+
+  return 0;
+}
+
+/**
+ * @description:
+ *  - 编写一个程序，把所有的常规信号（1-31）的未决状态打印到屏幕
+ *  - 设置某些信号是阻塞的，通过键盘产生这些信号
+ **/
+#include <stdio.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+int main()
+{
+  // 设置2、3号信号阻塞
+  sigset_t set;
+  sigemptyset(&set);
+  sigaddset(&set, SIGINT);
+  sigaddset(&set, SIGQUIT);
+
+  // 修改内核中的阻塞信号集
+  sigprocmask(SIG_BLOCK, &set, NULL);
+
+  int num = 0;
+  while (1)
+  {
+    num++;
+    printf("num=%d:", num);
+
+    // 获取当前的未决信号集的数据
+    sigset_t pendingset;
+    sigemptyset(&pendingset);
+    sigpending(&pendingset);
+
+    // 遍历前32位
+    for (int i = 1; i <= 31; i++)
+    {
+      if (sigismember(&pendingset, i) == 1)
+        printf("1");
+      else if (sigismember(&pendingset, i) == 0)
+        printf("0");
+      else
+      {
+        perror("sigismember");
+        exit(0);
+      }
+    }
+
+    printf("\n");
+    sleep(1);
+    if (num == 10)
+      sigprocmask(SIG_UNBLOCK, &set, NULL); // 解除阻塞
+  }
+
+  return 0;
+}
+```
 
 ## 4.5. 共享内存
 
@@ -1036,7 +1285,7 @@ int sigpending(sigset_t *set);
   **/
 ```
 
-### 4.5.4. 使用范例
+### 4.5.4. 应用范例
 
 ## 4.6. 守护进程
 
@@ -1153,82 +1402,82 @@ pid_t setsid(void);
   - 在关闭了文件描述符 0、 1、 2 之后，守护进程通常会打开 `/dev/null` 并使用 `dup2()` 使所有这些描述符指向这个设备；
   - 核心业务逻辑；
 
-### 4.6.6. 使用范例
+### 4.6.6. 应用范例
 
-- **实现一个每 1s 向磁盘文件打印当前系统时间的守护进程**
+#### 4.6.6.1. 每 1s 向磁盘文件打印当前系统时间的守护进程
 
-  ```cpp {class=line-numbers}
-  #include <stdio.h>
-  #include <sys/stat.h>
-  #include <sys/types.h>
-  #include <unistd.h>
-  #include <fcntl.h>
-  #include <sys/time.h>
-  #include <signal.h>
-  #include <time.h>
-  #include <stdlib.h>
-  #include <string.h>
+```cpp {class=line-numbers}
+#include <stdio.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/time.h>
+#include <signal.h>
+#include <time.h>
+#include <stdlib.h>
+#include <string.h>
 
-  // 捕捉到信号之后，获取系统时间，写入磁盘文件
-  void work(int num)
+// 捕捉到信号之后，获取系统时间，写入磁盘文件
+void work(int num)
+{
+  time_t abs_tm = time(NULL); // 返回自 Epoch 1970-01-01 00:00:00 +0000 (UTC) 时到当前时刻所经过的秒数
+  struct tm *loc_tm = localtime(&abs_tm);
+  char *str = asctime(loc_tm);
+
+  int fd = open("time.txt", O_RDWR | O_CREAT | O_APPEND, 0664);
+  write(fd, str, strlen(str));
+  close(fd);
+}
+
+int main()
+{
+  // 创建子进程，退出父进程
+  pid_t pid = fork();
+  if (pid < 0)
   {
-    time_t abs_tm = time(NULL); // 返回自 Epoch 1970-01-01 00:00:00 +0000 (UTC) 时到当前时刻所经过的秒数
-    struct tm *loc_tm = localtime(&abs_tm);
-    char *str = asctime(loc_tm);
-
-    int fd = open("time.txt", O_RDWR | O_CREAT | O_APPEND, 0664);
-    write(fd, str, strlen(str));
-    close(fd);
+    perror("fork");
+    exit(EXIT_FAILURE);
+  }
+  else if (pid > 0)
+  {
+    exit(0);
   }
 
-  int main()
-  {
-    // 创建子进程，退出父进程
-    pid_t pid = fork();
-    if (pid < 0)
-    {
-      perror("fork");
-      exit(EXIT_FAILURE);
-    }
-    else if (pid > 0)
-    {
-      exit(0);
-    }
+  // 将子进程重新创建一个会话
+  setsid();
 
-    // 将子进程重新创建一个会话
-    setsid();
+  // 设置掩码
+  umask(022);
 
-    // 设置掩码
-    umask(022);
+  // 更改工作目录
+  chdir("/home/hrl/");
 
-    // 更改工作目录
-    chdir("/home/hrl/");
+  // 关闭、重定向文件描述符
+  int fd = open("/dev/null", O_RDWR);
+  dup2(fd, STDIN_FILENO);
+  dup2(fd, STDOUT_FILENO);
+  dup2(fd, STDERR_FILENO);
 
-    // 关闭、重定向文件描述符
-    int fd = open("/dev/null", O_RDWR);
-    dup2(fd, STDIN_FILENO);
-    dup2(fd, STDOUT_FILENO);
-    dup2(fd, STDERR_FILENO);
+  // 业务逻辑：使用周期性定时器实现每秒向磁盘文件写入当前系统时间
+  struct sigaction sig_act;
+  sig_act.sa_flags = 0;
+  sig_act.sa_handler = work;
+  sigemptyset(&sig_act.sa_mask);
+  sigaction(SIGALRM, &sig_act, NULL);
 
-    // 业务逻辑：使用周期性定时器实现每秒向磁盘文件写入当前系统时间
-    struct sigaction sig_act;
-    sig_act.sa_flags = 0;
-    sig_act.sa_handler = work;
-    sigemptyset(&sig_act.sa_mask);
-    sigaction(SIGALRM, &sig_act, NULL);
+  struct itimerval it_val;
+  it_val.it_value.tv_sec = 1;
+  it_val.it_value.tv_usec = 0;
+  it_val.it_interval.tv_sec = 1;
+  it_val.it_interval.tv_usec = 0;
 
-    struct itimerval it_val;
-    it_val.it_value.tv_sec = 1;
-    it_val.it_value.tv_usec = 0;
-    it_val.it_interval.tv_sec = 1;
-    it_val.it_interval.tv_usec = 0;
+  // 创建定时器
+  setitimer(ITIMER_REAL, &it_val, NULL);
 
-    // 创建定时器
-    setitimer(ITIMER_REAL, &it_val, NULL);
+  // 使后台进程一直运行
+  while (1);
 
-    // 使后台进程一直运行
-    while (1);
-
-    return 0;
-  }
-  ```
+  return 0;
+}
+```
