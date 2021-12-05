@@ -23,11 +23,15 @@
     - [4.1.1. 管道的特点](#411-管道的特点)
     - [4.1.2. 管道的数据结构](#412-管道的数据结构)
     - [4.1.3. 匿名管道的使用](#413-匿名管道的使用)
-    - [4.1.4. 使用范例](#414-使用范例)
+    - [4.1.4. 应用范例](#414-应用范例)
+      - [4.1.4.1. 父进程向子进程发送消息](#4141-父进程向子进程发送消息)
+      - [4.1.4.2. 实现 `ps aux | grep xxx` 父子进程间通信](#4142-实现-ps-aux--grep-xxx-父子进程间通信)
+      - [4.1.4.3. 设置管道非阻塞](#4143-设置管道非阻塞)
   - [4.2. 有名管道 FIFO](#42-有名管道-fifo)
     - [4.2.1. 有名管道的特点](#421-有名管道的特点)
     - [4.2.2. 有名管道的使用](#422-有名管道的使用)
-    - [4.2.3. 使用范例](#423-使用范例)
+    - [4.2.3. 应用范例](#423-应用范例)
+      - [4.2.3.1. 不同进程使用有名管道进行通信](#4231-不同进程使用有名管道进行通信)
   - [4.3. 内存映射](#43-内存映射)
     - [4.3.1. 内存映射相关系统调用](#431-内存映射相关系统调用)
     - [4.3.2. 应用范例](#432-应用范例)
@@ -209,202 +213,202 @@ int prlimit(pid_t pid, int resource, const struct rlimit *new_limit, struct rlim
   // example:
   long size = fpathconf(pipefd[0], _PC_PIPE_BUF);
   ```
-### 4.1.4. 使用范例
+### 4.1.4. 应用范例
 
-- 父进程向子进程发送消息
+#### 4.1.4.1. 父进程向子进程发送消息
 
-  ```cpp {class=line-numbers}
-  #include <sys/types.h>
-  #include <sys/wait.h>
-  #include <stdio.h>
-  #include <stdlib.h>
-  #include <unistd.h>
-  #include <string.h>
+```cpp {class=line-numbers}
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
 
-  int main(int argc, char *argv[])
+int main(int argc, char *argv[])
+{
+  // 创建管道
+  int pipefd[2] = {0};
+  if (pipe(pipefd) == -1)
   {
-    // 创建管道
-    int pipefd[2] = {0};
-    if (pipe(pipefd) == -1)
-    {
-      perror("pipe");
-      exit(EXIT_FAILURE);
-    }
-
-    // 创建子进程
-    pid_t pid = fork();
-    if (pid == -1)
-    {
-      perror("fork");
-      exit(EXIT_FAILURE);
-    }
-
-    // 父进程向管道写消息：从标准输入获取消息并发送给子进程，当输入 quit 时退出
-    if (pid > 0)
-    {
-      close(pipefd[0]);
-      char wbuf[1024] = {0};
-
-      while (1)
-      {
-        // fgets(wbuf, 1024, stdin); // fgets 从键盘读取数据时会把换行符（回车）读入，并添加 '\0'
-        gets(wbuf); // gets 从键盘读取数据时不会把换行符（回车）读入，并添加 '\0'，gets 是不安全的，因为没有指定缓冲区的大小
-        write(pipefd[1], wbuf, strlen(wbuf) + 1);
-        if (strcmp(wbuf, "quit") == 0)
-          break;
-        memset(wbuf, 0, 1024);
-      }
-
-      close(pipefd[1]);
-      exit(EXIT_SUCCESS);
-    }
-    // 子进程从管道读消息并将其打印到标准输出中
-    else
-    {
-      close(pipefd[1]);
-      char rbuf[1024] = {0};
-
-      while (1)
-      {
-        read(pipefd[0], rbuf, 1024);
-        printf("recv from parent:");
-        fputs(rbuf, stdout);
-        if (strcmp(rbuf, "quit") == 0)
-          break;
-        memset(rbuf, 0, 1024);
-      }
-
-      close(pipefd[0]);
-      exit(EXIT_SUCCESS);
-    }
-
-    return 0;
+    perror("pipe");
+    exit(EXIT_FAILURE);
   }
-  ```
 
-- 实现 `ps aux | grep xxx` 父子进程间通信
-
-  ```cpp {class=line-numbers}
-  #include <unistd.h>
-  #include <sys/types.h>
-  #include <stdio.h>
-  #include <stdlib.h>
-  #include <string.h>
-  #include <wait.h>
-
-  int main()
+  // 创建子进程
+  pid_t pid = fork();
+  if (pid == -1)
   {
-    // 创建一个管道
-    int fd[2];
-    if (pipe(fd) == -1)
-    {
-      perror("pipe");
-      exit(EXIT_FAILURE);
-    }
-
-    // 创建子进程
-    pid_t pid = fork();
-    if (pid > 0)
-    {
-      close(fd[1]);
-      char buf[1024] = {0};
-
-      int len = -1;
-      while ((len = read(fd[0], buf, sizeof(buf) - 1)) > 0)
-      {
-        // todo: 过滤数据输出
-        printf("%s", buf);
-        memset(buf, 0, 1024);
-      }
-
-      wait(NULL);
-    }
-    else if (pid == 0)
-    {
-      close(fd[0]);
-      dup2(fd[1], STDOUT_FILENO); // 将标准输出重定向到管道的写端
-      execlp("ps", "ps", "aux", NULL); // 执行 ps aux，其输出将通过管道写端写入管道
-      perror("execlp");
-      exit(0);
-    }
-    else
-    {
-      perror("fork");
-      exit(EXIT_FAILURE);
-    }
-
-    return 0;
+    perror("fork");
+    exit(EXIT_FAILURE);
   }
-  ```
 
-- 设置管道非阻塞
-
-  ```cpp {class=line-numbers}
-  /**
-  * @description:
-  *  - 设置管道非阻塞
-  *  - int flags = fcntl(fd[0], F_GETFL)；
-  *  - flags |= O_NONBLOCK;
-  *  - fcntl(fd[0], F_SETFL, flags);
-  **/
-
-  #include <unistd.h>
-  #include <sys/types.h>
-  #include <stdio.h>
-  #include <stdlib.h>
-  #include <string.h>
-  #include <fcntl.h>
-
-  int main()
+  // 父进程向管道写消息：从标准输入获取消息并发送给子进程，当输入 quit 时退出
+  if (pid > 0)
   {
+    close(pipefd[0]);
+    char wbuf[1024] = {0};
 
-    // 在fork之前创建管道
-    int pipefd[2];
-    if (pipe(pipefd) == -1)
+    while (1)
     {
-      perror("pipe");
-      exit(EXIT_FAILURE);
+      // fgets(wbuf, 1024, stdin); // fgets 从键盘读取数据时会把换行符（回车）读入，并添加 '\0'
+      gets(wbuf); // gets 从键盘读取数据时不会把换行符（回车）读入，并添加 '\0'，gets 是不安全的，因为没有指定缓冲区的大小
+      write(pipefd[1], wbuf, strlen(wbuf) + 1);
+      if (strcmp(wbuf, "quit") == 0)
+        break;
+      memset(wbuf, 0, 1024);
     }
 
-    // 创建子进程
-    pid_t pid = fork();
-    if (pid > 0)
-    {
-      printf("i am parent process, pid : %d\n", getpid());
-      close(pipefd[1]);
-
-      char buf[1024] = {0};
-
-      int flags = fcntl(pipefd[0], F_GETFL); // 获取原来的 flag
-      flags |= O_NONBLOCK;                   // 修改 flag 的值
-      fcntl(pipefd[0], F_SETFL, flags);      // 设置新的 flag
-
-      while (1)
-      {
-        int len = read(pipefd[0], buf, sizeof(buf));
-        printf("len : %d\n", len);
-        printf("parent recv : %s, pid : %d\n", buf, getpid());
-        memset(buf, 0, 1024);
-        sleep(1);
-      }
-    }
-    else if (pid == 0)
-    {
-      printf("i am child process, pid : %d\n", getpid());
-      close(pipefd[0]);
-
-      char buf[1024] = {0};
-      while (1)
-      {
-        // 向管道中写入数据
-        const char *str = "hello,i am child";
-        write(pipefd[1], str, strlen(str) + 1);
-        sleep(5);
-      }
-    }
-    return 0;
+    close(pipefd[1]);
+    exit(EXIT_SUCCESS);
   }
-  ```
+  // 子进程从管道读消息并将其打印到标准输出中
+  else
+  {
+    close(pipefd[1]);
+    char rbuf[1024] = {0};
+
+    while (1)
+    {
+      read(pipefd[0], rbuf, 1024);
+      printf("recv from parent:");
+      fputs(rbuf, stdout);
+      if (strcmp(rbuf, "quit") == 0)
+        break;
+      memset(rbuf, 0, 1024);
+    }
+
+    close(pipefd[0]);
+    exit(EXIT_SUCCESS);
+  }
+
+  return 0;
+}
+```
+
+#### 4.1.4.2. 实现 `ps aux | grep xxx` 父子进程间通信
+
+```cpp {class=line-numbers}
+#include <unistd.h>
+#include <sys/types.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <wait.h>
+
+int main()
+{
+  // 创建一个管道
+  int fd[2];
+  if (pipe(fd) == -1)
+  {
+    perror("pipe");
+    exit(EXIT_FAILURE);
+  }
+
+  // 创建子进程
+  pid_t pid = fork();
+  if (pid > 0)
+  {
+    close(fd[1]);
+    char buf[1024] = {0};
+
+    int len = -1;
+    while ((len = read(fd[0], buf, sizeof(buf) - 1)) > 0)
+    {
+      // todo: 过滤数据输出
+      printf("%s", buf);
+      memset(buf, 0, 1024);
+    }
+
+    wait(NULL);
+  }
+  else if (pid == 0)
+  {
+    close(fd[0]);
+    dup2(fd[1], STDOUT_FILENO); // 将标准输出重定向到管道的写端
+    execlp("ps", "ps", "aux", NULL); // 执行 ps aux，其输出将通过管道写端写入管道
+    perror("execlp");
+    exit(0);
+  }
+  else
+  {
+    perror("fork");
+    exit(EXIT_FAILURE);
+  }
+
+  return 0;
+}
+```
+
+#### 4.1.4.3. 设置管道非阻塞
+
+```cpp {class=line-numbers}
+/**
+* @description:
+*  - 设置管道非阻塞
+*  - int flags = fcntl(fd[0], F_GETFL)；
+*  - flags |= O_NONBLOCK;
+*  - fcntl(fd[0], F_SETFL, flags);
+**/
+
+#include <unistd.h>
+#include <sys/types.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <fcntl.h>
+
+int main()
+{
+
+  // 在fork之前创建管道
+  int pipefd[2];
+  if (pipe(pipefd) == -1)
+  {
+    perror("pipe");
+    exit(EXIT_FAILURE);
+  }
+
+  // 创建子进程
+  pid_t pid = fork();
+  if (pid > 0)
+  {
+    printf("i am parent process, pid : %d\n", getpid());
+    close(pipefd[1]);
+
+    char buf[1024] = {0};
+
+    int flags = fcntl(pipefd[0], F_GETFL); // 获取原来的 flag
+    flags |= O_NONBLOCK;                   // 修改 flag 的值
+    fcntl(pipefd[0], F_SETFL, flags);      // 设置新的 flag
+
+    while (1)
+    {
+      int len = read(pipefd[0], buf, sizeof(buf));
+      printf("len : %d\n", len);
+      printf("parent recv : %s, pid : %d\n", buf, getpid());
+      memset(buf, 0, 1024);
+      sleep(1);
+    }
+  }
+  else if (pid == 0)
+  {
+    printf("i am child process, pid : %d\n", getpid());
+    close(pipefd[0]);
+
+    char buf[1024] = {0};
+    while (1)
+    {
+      // 向管道中写入数据
+      const char *str = "hello,i am child";
+      write(pipefd[1], str, strlen(str) + 1);
+      sleep(5);
+    }
+  }
+  return 0;
+}
+```
 
 ## 4.2. 有名管道 FIFO
 
@@ -452,179 +456,179 @@ int prlimit(pid_t pid, int resource, const struct rlimit *new_limit, struct rlim
      **/
   ```
 
-### 4.2.3. 使用范例
+### 4.2.3. 应用范例
 
-- 不同进程使用有名管道进行通信
+#### 4.2.3.1. 不同进程使用有名管道进行通信
 
-  ```cpp {class=line-numbers}
-  /**
-   * @brief:
-   *  - 进程 A 侧的程序代码
-   **/
-  #include <stdio.h>
-  #include <unistd.h>
-  #include <sys/types.h>
-  #include <sys/stat.h>
-  #include <stdlib.h>
-  #include <fcntl.h>
-  #include <string.h>
+```cpp {class=line-numbers}
+/**
+ * @brief:
+ *  - 进程 A 侧的程序代码
+ **/
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <string.h>
 
-  int main()
+int main()
+{
+  // 判断有名管道文件是否存在
+  if (access("fifo1", F_OK) == -1)
   {
-    // 判断有名管道文件是否存在
-    if (access("fifo1", F_OK) == -1)
+    printf("管道不存在，创建对应的有名管道 fifo1\n");
+    if (mkfifo("fifo1", 0664) == -1)
     {
-      printf("管道不存在，创建对应的有名管道 fifo1\n");
-      if (mkfifo("fifo1", 0664) == -1)
-      {
-        perror("mkfifo");
-        exit(0);
-      }
-    }
-
-    if (access("fifo2", F_OK) == -1)
-    {
-      printf("管道不存在，创建对应的有名管道 fifo2\n");
-      if (mkfifo("fifo2", 0664) == -1)
-      {
-        perror("mkfifo");
-        exit(0);
-      }
-    }
-
-    // 以只写的方式打开管道 fifo1
-    int fdw = open("fifo1", O_WRONLY);
-    if (fdw == -1)
-    {
-      perror("open");
+      perror("mkfifo");
       exit(0);
     }
-    printf("打开管道fifo1成功，等待写入...\n");
-
-    // 以只读的方式打开管道fifo2
-    int fdr = open("fifo2", O_RDONLY);
-    if (fdr == -1)
-    {
-      perror("open");
-      exit(0);
-    }
-    printf("打开管道fifo2成功，等待读取...\n");
-
-    char buf[1024];
-
-    // 循环的写读数据
-    while (1)
-    {
-      memset(buf, 0, 1024);
-      fgets(buf, 1024, stdin); // 会读取换行符
-      int len = write(fdw, buf, strlen(buf));
-      if (len == -1)
-      {
-        perror("write");
-        exit(0);
-      }
-
-      memset(buf, 0, 1024);
-      len = read(fdr, buf, 1024);
-      if (len <= 0)
-      {
-        perror("read");
-        break;
-      }
-      printf("buf: %s\n", buf);
-    }
-
-    close(fdr);
-    close(fdw);
-
-    return 0;
   }
-  ```
 
-  ```cpp {class=line-numbers}
-  /**
-   * @brief:
-   *  - 进程 B 侧的程序代码
-   **/
-  #include <stdio.h>
-  #include <unistd.h>
-  #include <sys/types.h>
-  #include <sys/stat.h>
-  #include <stdlib.h>
-  #include <fcntl.h>
-  #include <string.h>
-
-  int main()
+  if (access("fifo2", F_OK) == -1)
   {
-    // 判断有名管道文件是否存在
-    if (access("fifo1", F_OK) == -1)
+    printf("管道不存在，创建对应的有名管道 fifo2\n");
+    if (mkfifo("fifo2", 0664) == -1)
     {
-      printf("管道不存在，创建对应的有名管道 fifo1\n");
-      if (mkfifo("fifo1", 0664) == -1)
-      {
-        perror("mkfifo");
-        exit(0);
-      }
-    }
-
-    if (access("fifo2", F_OK) == -1)
-    {
-      printf("管道不存在，创建对应的有名管道 fifo2\n");
-      if (mkfifo("fifo2", 0664) == -1)
-      {
-        perror("mkfifo");
-        exit(0);
-      }
-    }
-
-    // 以只读的方式打开管道 fifo1
-    int fdr = open("fifo1", O_RDONLY);
-    if (fdr == -1)
-    {
-      perror("open");
+      perror("mkfifo");
       exit(0);
     }
-    printf("打开管道fifo1成功，等待读取...\n");
-    
-    // 以只写的方式打开管道 fifo2
-    int fdw = open("fifo2", O_WRONLY);
-    if (fdw == -1)
-    {
-      perror("open");
-      exit(0);
-    }
-    printf("打开管道fifo2成功，等待写入...\n");
-
-    char buf[1024];
-
-    // 循环的读写数据
-    while (1)
-    {
-      memset(buf, 0, 1024);
-      int len = read(fdr, buf, 1024);
-      if (len <= 0)
-      {
-        perror("read");
-        break;
-      }
-      printf("buf: %s\n", buf);
-
-      memset(buf, 0, 1024);
-      fgets(buf, 1024, stdin); // 会读取换行符
-      len = write(fdw, buf, strlen(buf));
-      if (len == -1)
-      {
-        perror("write");
-        exit(0);
-      }
-    }
-
-    close(fdr);
-    close(fdw);
-
-    return 0;
   }
-  ```
+
+  // 以只写的方式打开管道 fifo1
+  int fdw = open("fifo1", O_WRONLY);
+  if (fdw == -1)
+  {
+    perror("open");
+    exit(0);
+  }
+  printf("打开管道fifo1成功，等待写入...\n");
+
+  // 以只读的方式打开管道fifo2
+  int fdr = open("fifo2", O_RDONLY);
+  if (fdr == -1)
+  {
+    perror("open");
+    exit(0);
+  }
+  printf("打开管道fifo2成功，等待读取...\n");
+
+  char buf[1024];
+
+  // 循环的写读数据
+  while (1)
+  {
+    memset(buf, 0, 1024);
+    fgets(buf, 1024, stdin); // 会读取换行符
+    int len = write(fdw, buf, strlen(buf));
+    if (len == -1)
+    {
+      perror("write");
+      exit(0);
+    }
+
+    memset(buf, 0, 1024);
+    len = read(fdr, buf, 1024);
+    if (len <= 0)
+    {
+      perror("read");
+      break;
+    }
+    printf("buf: %s\n", buf);
+  }
+
+  close(fdr);
+  close(fdw);
+
+  return 0;
+}
+```
+
+```cpp {class=line-numbers}
+/**
+ * @brief:
+ *  - 进程 B 侧的程序代码
+ **/
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <string.h>
+
+int main()
+{
+  // 判断有名管道文件是否存在
+  if (access("fifo1", F_OK) == -1)
+  {
+    printf("管道不存在，创建对应的有名管道 fifo1\n");
+    if (mkfifo("fifo1", 0664) == -1)
+    {
+      perror("mkfifo");
+      exit(0);
+    }
+  }
+
+  if (access("fifo2", F_OK) == -1)
+  {
+    printf("管道不存在，创建对应的有名管道 fifo2\n");
+    if (mkfifo("fifo2", 0664) == -1)
+    {
+      perror("mkfifo");
+      exit(0);
+    }
+  }
+
+  // 以只读的方式打开管道 fifo1
+  int fdr = open("fifo1", O_RDONLY);
+  if (fdr == -1)
+  {
+    perror("open");
+    exit(0);
+  }
+  printf("打开管道fifo1成功，等待读取...\n");
+  
+  // 以只写的方式打开管道 fifo2
+  int fdw = open("fifo2", O_WRONLY);
+  if (fdw == -1)
+  {
+    perror("open");
+    exit(0);
+  }
+  printf("打开管道fifo2成功，等待写入...\n");
+
+  char buf[1024];
+
+  // 循环的读写数据
+  while (1)
+  {
+    memset(buf, 0, 1024);
+    int len = read(fdr, buf, 1024);
+    if (len <= 0)
+    {
+      perror("read");
+      break;
+    }
+    printf("buf: %s\n", buf);
+
+    memset(buf, 0, 1024);
+    fgets(buf, 1024, stdin); // 会读取换行符
+    len = write(fdw, buf, strlen(buf));
+    if (len == -1)
+    {
+      perror("write");
+      exit(0);
+    }
+  }
+
+  close(fdr);
+  close(fdw);
+
+  return 0;
+}
+```
 
 ## 4.3. 内存映射
 
