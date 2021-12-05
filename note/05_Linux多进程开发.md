@@ -38,10 +38,8 @@
     - [4.4.4. 信号相关函数](#444-信号相关函数)
     - [4.4.5. 信号捕捉函数](#445-信号捕捉函数)
     - [4.4.6. 信号集](#446-信号集)
-    - [4.4.7. 阻塞信号集和未决信号集](#447-阻塞信号集和未决信号集)
-    - [4.4.8. 信号集相关函数](#448-信号集相关函数)
-    - [4.4.9. 内核实现信号捕捉的过程](#449-内核实现信号捕捉的过程)
-    - [4.4.10. SIGCHILD 信号](#4410-sigchild-信号)
+    - [4.4.7. 内核实现信号捕捉的过程](#447-内核实现信号捕捉的过程)
+    - [4.4.8. SIGCHILD 信号](#448-sigchild-信号)
   - [4.5. 共享内存](#45-共享内存)
     - [4.5.1. 共享内存的概念](#451-共享内存的概念)
     - [4.5.2. 共享内存的使用步骤](#452-共享内存的使用步骤)
@@ -873,43 +871,59 @@ int getitimer(int which, struct itimerval *curr_value);
 
 ### 4.4.5. 信号捕捉函数
 
-- `signal`
+```cpp {class=line-numbers}
+sighandler_t signal(int signum, sighandler_t handler);
+int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact);
 
-  ```cpp {class=line-numbers}
-  /**
-    * @brief:
-    *  - 
-    * @param: 
-    *  - 
-    *  - 
-    * @return:
-    *  - 成功：
-    *  - 失败：
-    **/
-  ```
+#include <signal.h>
+typedef void (*sighandler_t)(int);
+sighandler_t signal(int signum, sighandler_t handler);
+/**
+  * @brief:
+  *  - 捕获特定信号，并执行指定的信号处理程序
+  * @param: 
+  *  - int signum：指定的信号
+  *  - sighandler_t handler：信号处理程序
+  *    - SIG_IGN：忽略信号
+  *    - SIG_DFL：执行默认的信号处理动作
+  *    - 回调函数：程序员提供，内核进行调用，其中 int 类型的参数表示捕捉到的信号的值
+  * @return:
+  *  - 成功：返回上一次注册的信号处理函数，第一次调用返回 NULL
+  *  - 失败：SIG_ERR，并设置 errno
+  **/
 
-- `sigaction`
-
-  ```cpp {class=line-numbers}
-  /**
-    * @brief:
-    *  - 
-    * @param: 
-    *  - 
-    *  - 
-    * @return:
-    *  - 成功：
-    *  - 失败：
-    **/
-  ```
+#include <signal.h>
+int sigaction(int signum, const struct sigaction *act, struct sigaction *oldact);
+/**
+  * @brief:
+  *  - 检查或更改进程受到信号后的处理动作，用于捕捉信号实现软中断
+  * @param: 
+  *  - int signum：特定的信号
+  *  - const struct sigaction *act：设置捕捉到信号的处理行为
+  *  - struct sigaction *oldact：获取上一次设置的捕捉到信号的处理行为
+       struct sigaction 
+       {
+          void (*sa_handler)(int); // 信号捕捉到之后的处理函数
+          void (*sa_sigaction)(int, siginfo_t *, void *); // 不常用
+          sigset_t sa_mask; // 临时阻塞信号集，在信号捕捉函数执行过程中，临时阻塞某些信号
+          int sa_flags; // 0 表示使用 sa_handler，SA_SIGINFO 表示使用 sa_sigaction
+          void (*sa_restorer)(void); // 被废弃掉了
+        };
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+```
 
 ### 4.4.6. 信号集
 
-### 4.4.7. 阻塞信号集和未决信号集
-
-### 4.4.8. 信号集相关函数
+- 许多信号相关的系统调用都需要能表示一组不同的信号，多个信号可使用一个称之为信号集的数据结构来表示，其系统数据类型为 `sigset_t`
+- 在 PCB 中有两个非常重要的信号集。一个称之为**阻塞信号集** ，另一个称之为**未决信号集**。这两个信号集都是内核使用位图机制来实现的。但操作系统不允许我们直接对这两个信号集进行位操作。而需自定义另外一个集合，借助信号集操作函数来对 PCB 中的这两个信号集进行修改
+- 信号的 “未决” 是一种状态，指的是从信号的产生到信号被处理前的这一段时间；信号的 “阻塞” 是一个开关动作，指的是阻止信号被处理，但不是阻止信号产生
+- 信号的阻塞就是让系统暂时保留信号留待以后发送。由于另外有办法让系统忽略信号，所以一般情况下信号的阻塞只是暂时的，只是为了防止信号打断敏感的操作
 
 ```cpp {class=line-numbers}
+// 信号集相关函数
 int sigemptyset(sigset_t *set);
 int sigfillset(sigset_t *set);
 int sigaddset(sigset_t *set, int signum);
@@ -919,11 +933,11 @@ int sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
 int sigpending(sigset_t *set);
 ```
 
-- 后台进程与前台进程
+### 4.4.7. 内核实现信号捕捉的过程
 
-### 4.4.9. 内核实现信号捕捉的过程
+![内核实现信号捕捉的过程](webserver/note/figure/内核实现信号捕捉的过程.JPG)
 
-### 4.4.10. SIGCHILD 信号
+### 4.4.8. SIGCHILD 信号
 
 ## 4.5. 共享内存
 
@@ -975,7 +989,7 @@ int sigpending(sigset_t *set);
   find / 2 > /dev/null | wc -l & // & 用于设置后台进程
   sort < longlist | uniq -c
   ```
-  ![进程组-会话-控制终端间的关系](./code/webserver/note/figure/进程组_会话_控制终端间的关系.PNG)
+  ![进程组-会话-控制终端间的关系](webserver/note/figure/进程组_会话_控制终端间的关系.PNG)
 
 ### 4.6.4. 进程组、会话操作函数
 
