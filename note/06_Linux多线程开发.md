@@ -53,36 +53,95 @@
 
 # 2. 线程控制
 
+- 本节描述的是 Posix 线程库，称为 Posix thread 或 pthread。在 Linux 上线程函数位于 libpthread 共享库中，需要添加头文件 `#include <pthread.h>` 并在编译时加上 `-lpthread` 或 `-pthread` 选项
 - 查看当前 pthread 库版本：`getconf GNU_LIBPTHREAD_VERSION`
 
 ## 2.1. 线程创建
 
 ```cpp {class=line-numbers}
 int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine) (void *), void *arg);
+/**
+   * @brief:
+   *  - 创建一个子线程，启动函数为 start_routine()。新线程将在以下的几种情况下终止：
+   *    - 子线程调用 pthread_exit()
+   *    - start_routine() 函数返回
+   *    - 被取消（pthread_cancel）
+   *    - 主线程在 main 函数中返回或者进程中的任一进程调用 exit()，这将导致该进程中的所有线程终止
+   * @param: 
+   *  - thread：传出参数，子线程创建成功后，子线程的 id 号存储在 thread 所指向的内存中
+   *  - attr：设置子线程的属性，一般采用默认值 NULL
+   *  - start_routine：函数指针，子线程的启动函数
+   *  - arg：用于给子线程的启动函数传递参数
+   * @return:
+   *  - 成功：0
+   *  - 失败：错误号，获取错误号信息：char * strerror(int errnum);
+   **/
 ```
+
+- 新线程将在以下的几种情况下终止：
+  - 子线程调用 pthread_exit()
+  - start_routine() 函数返回
+  - 被取消（pthread_cancel）
+  - 主线程在 main 函数中返回或者进程中的任一进程调用 exit()，这将导致该进程中的所有线程终止
 
 ## 2.2. 线程终止
 
 ```cpp {class=line-numbers}
 void pthread_exit(void *retval);
+/**
+   * @brief:
+   *  - 
+   * @param: 
+   *  - 
+   * @return:
+   *  - 成功：
+   *  - 失败：
+   **/
 ```
 
 ## 2.3. 线程连接
 
 ```cpp {class=line-numbers}
 int pthread_join(pthread_t thread, void **retval);
+/**
+   * @brief:
+   *  - 
+   * @param: 
+   *  - 
+   * @return:
+   *  - 成功：
+   *  - 失败：
+   **/
 ```
 
 ## 2.4. 线程分离
 
 ```cpp {class=line-numbers}
 int pthread_detach(pthread_t thread);
+/**
+   * @brief:
+   *  - 
+   * @param: 
+   *  - 
+   * @return:
+   *  - 成功：
+   *  - 失败：
+   **/
 ```
 
 ## 2.5. 线程取消
 
 ```cpp {class=line-numbers}
 int pthread_cancel(pthread_t thread);
+/**
+   * @brief:
+   *  - 
+   * @param: 
+   *  - 
+   * @return:
+   *  - 成功：
+   *  - 失败：
+   **/
 ```
 
 ## 2.6. 其他线程函数
@@ -90,6 +149,15 @@ int pthread_cancel(pthread_t thread);
 ```cpp {class=line-numbers}
 pthread_t pthread_self(void);
 int pthread_equal(pthread_t t1, pthread_t t2);
+/**
+   * @brief:
+   *  - 
+   * @param: 
+   *  - 
+   * @return:
+   *  - 成功：
+   *  - 失败：
+   **/
 ```
 
 ## 2.7. 线程属性
@@ -100,6 +168,15 @@ int pthread_attr_init(pthread_attr_t *attr);
 int pthread_attr_destroy(pthread_attr_t *attr);
 int pthread_attr_getdetachstate(const pthread_attr_t *attr, int *detachstate);
 int pthread_attr_setdetachstate(pthread_attr_t *attr, int detachstate);
+/**
+   * @brief:
+   *  - 
+   * @param: 
+   *  - 
+   * @return:
+   *  - 成功：
+   *  - 失败：
+   **/
 ```
 
 # 3. 线程同步
@@ -123,6 +200,15 @@ int pthread_mutex_destroy(pthread_mutex_t *mutex);
 int pthread_mutex_lock(pthread_mutex_t *mutex);
 int pthread_mutex_trylock(pthread_mutex_t *mutex);
 int pthread_mutex_unlock(pthread_mutex_t *mutex);
+/**
+   * @brief:
+   *  - 
+   * @param: 
+   *  - 
+   * @return:
+   *  - 成功：
+   *  - 失败：
+   **/
 ```
 
 ## 3.3. 死锁
@@ -142,6 +228,15 @@ int pthread_rwlock_tryrdlock(pthread_rwlock_t *rwlock);
 int pthread_rwlock_wrlock(pthread_rwlock_t *rwlock);
 int pthread_rwlock_trywrlock(pthread_rwlock_t *rwlock);
 int pthread_rwlock_unlock(pthread_rwlock_t *rwlock);
+/**
+   * @brief:
+   *  - 
+   * @param: 
+   *  - 
+   * @return:
+   *  - 成功：
+   *  - 失败：
+   **/
 ```
 ## 3.5. 自旋锁
 
@@ -155,6 +250,15 @@ int pthread_cond_wait(pthread_cond_t *restrict cond, pthread_mutex_t *restrict m
 int pthread_cond_timedwait(pthread_cond_t *restrict cond, pthread_mutex_t *restrict mutex, const struct timespec *restrict abstime);
 int pthread_cond_signal(pthread_cond_t *cond);
 int pthread_cond_broadcast(pthread_cond_t *cond);
+/**
+   * @brief:
+   *  - 
+   * @param: 
+   *  - 
+   * @return:
+   *  - 成功：
+   *  - 失败：
+   **/
 ```
 
 ## 3.7. 信号量
@@ -168,6 +272,15 @@ int sem_trywait(sem_t *sem);
 int sem_timedwait(sem_t *sem, const struct timespec *abs_timeout);
 int sem_post(sem_t *sem);
 int sem_getvalue(sem_t *sem, int *sval);
+/**
+   * @brief:
+   *  - 
+   * @param: 
+   *  - 
+   * @return:
+   *  - 成功：
+   *  - 失败：
+   **/
 ```
 
 ## 3.8. 生产者消费者模型
