@@ -67,6 +67,8 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_
    *    - start_routine() 函数返回
    *    - 被取消（pthread_cancel）
    *    - 主线程在 main 函数中返回或者进程中的任一进程调用 exit()，这将导致该进程中的所有线程终止
+   *  - 新线程继承创建线程的信号掩码 pthread_sigmask()；新线程的未决信号集为空 sigpending()；新线程不继承创建线程的备用信号堆栈 sigaltstack()
+   *  - 新线程的默认状态为连接态，此时需要使用 pthread_join() 来连接新线程以在新线程结束后回收新线程的资源；可以将线程设为分离态，此时线程终止时将自动回收资源
    * @param: 
    *  - thread：传出参数，子线程创建成功后，子线程的 id 号存储在 thread 所指向的内存中
    *  - attr：设置子线程的属性，一般采用默认值 NULL
@@ -77,12 +79,6 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_
    *  - 失败：错误号，获取错误号信息：char * strerror(int errnum);
    **/
 ```
-
-- 新线程将在以下的几种情况下终止：
-  - 子线程调用 pthread_exit()
-  - start_routine() 函数返回
-  - 被取消（pthread_cancel）
-  - 主线程在 main 函数中返回或者进程中的任一进程调用 exit()，这将导致该进程中的所有线程终止
 
 ## 2.2. 线程终止
 
