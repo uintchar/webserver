@@ -9,6 +9,7 @@
   - [2.5. 线程取消](#25-线程取消)
   - [2.6. 其他线程函数](#26-其他线程函数)
   - [2.7. 线程属性](#27-线程属性)
+  - [2.8. 应用范例](#28-应用范例)
 - [3. 线程同步](#3-线程同步)
   - [3.1. 线程同步的基本概念](#31-线程同步的基本概念)
   - [3.2. 互斥量（锁）](#32-互斥量锁)
@@ -64,7 +65,7 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_
    * @brief:
    *  - 创建一个子线程，启动函数为 start_routine()。新线程将在以下的几种情况下终止：
    *    - 子线程调用 pthread_exit()
-   *    - start_routine() 函数返回
+   *    - start_routine() 函数返回，等效于 pthread_exit()
    *    - 被取消（pthread_cancel）
    *    - 主线程在 main 函数中返回或者进程中的任一进程调用 exit()，这将导致该进程中的所有线程终止
    *  - 新线程继承创建线程的信号掩码 pthread_sigmask()；新线程的未决信号集为空 sigpending()；新线程不继承创建线程的备用信号堆栈 sigaltstack()
@@ -76,7 +77,7 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_
    *  - arg：用于给子线程的启动函数传递参数
    * @return:
    *  - 成功：0
-   *  - 失败：错误号，获取错误号信息：char * strerror(int errnum);
+   *  - 失败：错误号，获取错误号信息：char * strerror(int errnum)
    **/
 ```
 
@@ -86,12 +87,11 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_
 void pthread_exit(void *retval);
 /**
    * @brief:
-   *  - 
+   *  - 终止调用线程，通过 retval 来返回相关的值
+   *  - 当线程的 start_routine() 返回时等效于 pthread_exit()
    * @param: 
-   *  - 
+   *  - retval：线程退出返回值，若为 joinable 则可通过 pthread_join() 来获取该返回值。注意 retval 所指向的内存不应该在线程结束后就被回收
    * @return:
-   *  - 成功：
-   *  - 失败：
    **/
 ```
 
@@ -101,12 +101,15 @@ void pthread_exit(void *retval);
 int pthread_join(pthread_t thread, void **retval);
 /**
    * @brief:
-   *  - 
+   *  - 等待 thread 所指定的线程终止，回收连接线程的资源
+   *  - 阻塞调用，当所等待的线程终止时函数才返回，所等待的线程必须是 joinable 的
+   *  - 如果多个线程同时连接所指定的线程，则结果未定义；如果调用线程被取消，则所指定线程将保持 joinable
    * @param: 
-   *  - 
+   *  - thread：需要回收的线程 ID
+   *  - retval：接收所指定线程退出时的返回值，如果所指定线程被取消，则为线程退出状态被设置为 PTHREAD_CANCELED
    * @return:
-   *  - 成功：
-   *  - 失败：
+   *  - 成功：0
+   *  - 失败：错误号，获取错误号信息：char * strerror(int errnum)
    **/
 ```
 
@@ -116,12 +119,14 @@ int pthread_join(pthread_t thread, void **retval);
 int pthread_detach(pthread_t thread);
 /**
    * @brief:
-   *  - 
+   *  - 分离一个指定的线程，被分离的线程在终止时会自动释放资源返回给系统
+   *  - 不能连接一个 detached 的线程，会报错；不能将一个 detached 的线程设置为 joinable
+   *  - 重复分离一个 detached 的线程会带来未定义的行为
    * @param: 
-   *  - 
+   *  - thread：需要设置为 detached 的线程 ID
    * @return:
-   *  - 成功：
-   *  - 失败：
+   *  - 成功：0
+   *  - 失败：错误号，获取错误号信息：char * strerror(int errnum)
    **/
 ```
 
@@ -131,12 +136,18 @@ int pthread_detach(pthread_t thread);
 int pthread_cancel(pthread_t thread);
 /**
    * @brief:
-   *  - 
+   *  - 向指定的线程发送一个取消请求，指定线程是否取消取决于它的取消状态和取消类型
+   *  - 可通过 pthread_setcancelstate() 设置 cancelability state 为 enabled 或 disabled
+   *    - 若为 disabled，则取消请求将排队等待知道 enabled
+   *    - 若为 enabled，则 cancellation type 确定何时进行取消操作
+   *  - 可通过 pthread_setcanceltype() 设置 cancellation type 为 asynchronous 或 deferred（新线程默认为该类型）
+   *    - 若为 asynchronous 则可在任意时刻进行取消操作，一般为立即执行，但是系统并不保证立即执行
+   *    - 若为 deferred 则延期到目标线程的取消点才执行。取消点：系统规定好的一些系统调用，可以粗略的理解为从用户区到内核区的切换，这个位置称之为取消点
    * @param: 
-   *  - 
+   *  - thread：要取消的线程的 ID
    * @return:
-   *  - 成功：
-   *  - 失败：
+   *  - 成功：0
+   *  - 失败：错误号，获取错误号信息：char * strerror(int errnum)
    **/
 ```
 
@@ -144,16 +155,23 @@ int pthread_cancel(pthread_t thread);
 
 ```cpp {class=line-numbers}
 pthread_t pthread_self(void);
+/**
+   * @brief:
+   *  - 获取线程自身 ID
+   * @param: 
+   * @return:
+   *  - 返回调用线程的 ID
+   **/
+
 int pthread_equal(pthread_t t1, pthread_t t2);
 /**
    * @brief:
-   *  - 
+   *  - 比较两个线程 ID
    * @param: 
-   *  - 
    * @return:
-   *  - 成功：
-   *  - 失败：
+   *  - 相等返回非 0，不等返回 0
    **/
+
 ```
 
 ## 2.7. 线程属性
@@ -173,6 +191,81 @@ int pthread_attr_setdetachstate(pthread_attr_t *attr, int detachstate);
    *  - 成功：
    *  - 失败：
    **/
+```
+
+## 2.8. 应用范例
+
+```cpp {class=line-numbers}
+/**
+ * @description:
+ *  - 取消线程相关操作
+ **/
+
+#include <pthread.h>
+#include <stdio.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+#define handle_error_en(en, msg) \
+  do                             \
+  {                              \
+    errno = en;                  \
+    perror(msg);                 \
+    exit(EXIT_FAILURE);          \
+  } while (0)
+
+static void *thread_func(void *ignored_argument)
+{
+  int s;
+
+  /* Disable cancellation for a while, so that we don't immediately react to a cancellation request */
+  s = pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+  if (s != 0)
+    handle_error_en(s, "pthread_setcancelstate");
+  printf("thread_func(): started; cancellation disabled\n");
+
+  sleep(5);
+  printf("thread_func(): about to enable cancellation\n");
+  s = pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+  if (s != 0)
+    handle_error_en(s, "pthread_setcancelstate");
+
+  /* sleep() is a cancellation point */
+  sleep(1000); /* Should get canceled while we sleep */
+
+  /* Should never get here */
+  printf("thread_func(): not canceled!\n");
+  return NULL;
+}
+
+int main(void)
+{
+  pthread_t thr;
+  void *res;
+  int s;
+
+  /* Start a thread and then send it a cancellation request */
+  s = pthread_create(&thr, NULL, &thread_func, NULL);
+  if (s != 0) handle_error_en(s, "pthread_create");
+
+  sleep(2); /* Give thread a chance to get started */
+
+  printf("main(): sending cancellation request\n");
+  s = pthread_cancel(thr);
+  if (s != 0) handle_error_en(s, "pthread_cancel");
+
+  /* Join with thread to see what its exit status was */
+  s = pthread_join(thr, &res);
+  if (s != 0) handle_error_en(s, "pthread_join");
+
+  if (res == PTHREAD_CANCELED)
+    printf("main(): thread was canceled\n");
+  else
+    printf("main(): thread wasn't canceled (shouldn't happen!)\n");
+  
+  exit(EXIT_SUCCESS);
+}
 ```
 
 # 3. 线程同步
