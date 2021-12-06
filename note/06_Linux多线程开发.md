@@ -14,16 +14,20 @@
   - [3.1. 线程同步的基本概念](#31-线程同步的基本概念)
   - [3.2. 互斥锁](#32-互斥锁)
     - [3.2.1. 互斥锁基本概念](#321-互斥锁基本概念)
-    - [3.2.2. 互斥量相关操作函数](#322-互斥量相关操作函数)
+    - [3.2.2. 互斥锁相关函数](#322-互斥锁相关函数)
   - [3.3. 死锁](#33-死锁)
   - [3.4. 读写锁](#34-读写锁)
     - [3.4.1. 读写锁基本概念](#341-读写锁基本概念)
-    - [3.4.2. 读写锁相关操作函数](#342-读写锁相关操作函数)
+    - [3.4.2. 读写锁相关函数](#342-读写锁相关函数)
   - [3.5. 自旋锁](#35-自旋锁)
     - [3.5.1. 自旋锁基本概念](#351-自旋锁基本概念)
     - [3.5.2. 自旋锁相关函数](#352-自旋锁相关函数)
   - [3.6. 条件变量](#36-条件变量)
+    - [3.6.1. 条件变量基本概念](#361-条件变量基本概念)
+    - [3.6.2. 条件变量相关函数](#362-条件变量相关函数)
   - [3.7. 信号量](#37-信号量)
+    - [3.7.1. 信号量基本概念](#371-信号量基本概念)
+    - [3.7.2. 信号量相关函数](#372-信号量相关函数)
   - [3.8. 生产者消费者模型](#38-生产者消费者模型)
 
 # 1. 线程概述
@@ -331,7 +335,7 @@ int main(void)
   - 访问共享资源
   - 对互斥量解锁
 
-### 3.2.2. 互斥量相关操作函数
+### 3.2.2. 互斥锁相关函数
 
 ```cpp {class=line-numbers}
 #include <pthread.h>
@@ -346,7 +350,6 @@ int pthread_mutexattr_init(pthread_mutexattr_t *attr); /* 总是返回 0 */
 int pthread_mutexattr_destroy(pthread_mutexattr_t *attr); /* 总是返回 0 */
 int pthread_mutexattr_gettype(const pthread_mutexattr_t *attr, int *kind); /* 总是返回 0 */
 int pthread_mutexattr_settype(pthread_mutexattr_t *attr, int kind); /* 成功返回 0，失败返回错误号 */
-
 int pthread_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *mutexattr); /* 总是返回 0 */
 int pthread_mutex_destroy(pthread_mutex_t *mutex); /* 成功返回 0，失败返回错误号 */
 
@@ -391,14 +394,31 @@ int pthread_mutex_unlock(pthread_mutex_t *mutex);
 
 ## 3.3. 死锁
 
+- 有时，一个线程需要同时访问两个或更多不同的共享资源，而每个资源又都由不同的互斥量管理。当超过一个线程加锁同一组互斥量时，就有可能发生死锁
+- 两个或两个以上的进程在执行过程中，因争夺共享资源而造成的一种互相等待的现象
+- 若无外力作用，它们都将无法推进下去。此时称系统处于死锁状态或系统产生了死锁
+- 死锁的几种场景：
+  - 忘记释放锁
+  - 重复加锁
+  - 多线程多锁，抢占锁资源
+
+  [!死锁示意图](webserver/note/figure/死锁示意图.JPG)
+
 ## 3.4. 读写锁
 
 ### 3.4.1. 读写锁基本概念
 
-### 3.4.2. 读写锁相关操作函数
+- 当有一个线程已经持有互斥锁时，互斥锁将所有试图进入临界区的线程都阻塞住。但是考虑一种情形，当前持有互斥锁的线程只是要读访问共享资源，而同时有其它几个线程也想读取这个共享资源，但是由于互斥锁的排它性，所有其它线程都无法获取锁，也就无法读访问共享资源了，但是实际上多个线程同时读访问共享资源并不会导致问题
+- 在对数据的读写操作中，更多的是读操作，写操作较少，例如对数据库数据的读写应用
+- 为了满足当前能够允许多个读出，但只允许一个写入的需求，线程提供了读写锁来实现
+- 读写锁的特点：
+  - 如果有其它线程读数据，则允许其它线程执行读操作，但不允许写操作
+  - 如果有其它线程写数据，则其它线程都不允许读、写操作
+  - 写是独占的，写的优先级高。
+
+### 3.4.2. 读写锁相关函数
 
 ```cpp {class=line-numbers}
-pthread_rwlock_t
 int pthread_rwlock_init(pthread_rwlock_t *restrict rwlock, const pthread_rwlockattr_t *restrict attr);
 int pthread_rwlock_destroy(pthread_rwlock_t *rwlock);
 int pthread_rwlock_rdlock(pthread_rwlock_t *rwlock);
@@ -422,10 +442,30 @@ int pthread_rwlock_unlock(pthread_rwlock_t *rwlock);
 
 ### 3.5.2. 自旋锁相关函数
 
+```cpp {class=line-numbers}
+int pthread_spin_init(pthread_spinlock_t *lock, int pshared);
+int pthread_spin_destroy(pthread_spinlock_t *lock);
+int pthread_spin_lock(pthread_spinlock_t *lock);
+int pthread_spin_trylock(pthread_spinlock_t *lock);
+int pthread_spin_unlock(pthread_spinlock_t *lock);
+/**
+   * @brief:
+   *  - 
+   * @param: 
+   *  - 
+   * @return:
+   *  - 成功：
+   *  - 失败：
+   **/
+```
+
 ## 3.6. 条件变量
 
+### 3.6.1. 条件变量基本概念
+
+### 3.6.2. 条件变量相关函数
+
 ```cpp {class=line-numbers}
-pthread_cond_t
 int pthread_cond_init(pthread_cond_t *restrict cond, const pthread_condattr_t *restrict attr);
 int pthread_cond_destroy(pthread_cond_t *cond);
 int pthread_cond_wait(pthread_cond_t *restrict cond, pthread_mutex_t *restrict mutex);
@@ -445,8 +485,11 @@ int pthread_cond_broadcast(pthread_cond_t *cond);
 
 ## 3.7. 信号量
 
+### 3.7.1. 信号量基本概念
+
+### 3.7.2. 信号量相关函数
+
 ```cpp {class=line-numbers}
-sem_t
 int sem_init(sem_t *sem, int pshared, unsigned int value);
 int sem_destroy(sem_t *sem);
 int sem_wait(sem_t *sem);
