@@ -12,14 +12,16 @@
   - [2.8. 应用范例](#28-应用范例)
 - [3. 线程同步](#3-线程同步)
   - [3.1. 线程同步的基本概念](#31-线程同步的基本概念)
-  - [3.2. 互斥量（锁）](#32-互斥量锁)
-    - [3.2.1. 互斥量的基本概念](#321-互斥量的基本概念)
+  - [3.2. 互斥锁](#32-互斥锁)
+    - [3.2.1. 互斥锁基本概念](#321-互斥锁基本概念)
     - [3.2.2. 互斥量相关操作函数](#322-互斥量相关操作函数)
   - [3.3. 死锁](#33-死锁)
   - [3.4. 读写锁](#34-读写锁)
-    - [3.4.1. 读写锁的基本概念](#341-读写锁的基本概念)
+    - [3.4.1. 读写锁基本概念](#341-读写锁基本概念)
     - [3.4.2. 读写锁相关操作函数](#342-读写锁相关操作函数)
   - [3.5. 自旋锁](#35-自旋锁)
+    - [3.5.1. 自旋锁基本概念](#351-自旋锁基本概念)
+    - [3.5.2. 自旋锁相关函数](#352-自旋锁相关函数)
   - [3.6. 条件变量](#36-条件变量)
   - [3.7. 信号量](#37-信号量)
   - [3.8. 生产者消费者模型](#38-生产者消费者模型)
@@ -171,7 +173,6 @@ int pthread_equal(pthread_t t1, pthread_t t2);
    * @return:
    *  - 相等返回非 0，不等返回 0
    **/
-
 ```
 
 ## 2.7. 线程属性
@@ -182,15 +183,58 @@ int pthread_attr_init(pthread_attr_t *attr);
 int pthread_attr_destroy(pthread_attr_t *attr);
 int pthread_attr_getdetachstate(const pthread_attr_t *attr, int *detachstate);
 int pthread_attr_setdetachstate(pthread_attr_t *attr, int detachstate);
+
 /**
-   * @brief:
-   *  - 
-   * @param: 
-   *  - 
-   * @return:
-   *  - 成功：
-   *  - 失败：
-   **/
+ * @description:
+ *  - 线程属性相关操作
+ **/
+#include <stdio.h>
+#include <pthread.h>
+#include <string.h>
+#include <unistd.h>
+
+void *callback(void *arg)
+{
+  printf("chid thread id : %ld\n", pthread_self());
+  return NULL;
+}
+
+int main()
+{
+
+  // 创建一个线程属性变量
+  pthread_attr_t attr;
+  // 初始化属性变量
+  pthread_attr_init(&attr);
+
+  // 设置属性
+  pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
+  // 创建一个子线程
+  pthread_t tid;
+
+  int ret = pthread_create(&tid, &attr, callback, NULL);
+  if (ret != 0)
+  {
+    char *errstr = strerror(ret);
+    printf("error1 : %s\n", errstr);
+  }
+
+  // 获取线程的栈的大小
+  size_t size;
+  pthread_attr_getstacksize(&attr, &size);
+  printf("thread stack size : %ld\n", size);
+
+  // 输出主线程和子线程的id
+  printf("tid : %ld, main thread id : %ld\n", tid, pthread_self());
+
+  // 释放线程属性资源
+  pthread_attr_destroy(&attr);
+
+  pthread_exit(NULL);
+
+  return 0;
+}
 ```
 
 ## 2.8. 应用范例
@@ -276,27 +320,72 @@ int main(void)
 - **临界区**是指访问某一共享资源的代码片段，并且这段代码的执行应为原子操作，也就是同时访问同一共享资源的其他线程不应中断该片段的执行
 - 线程同步：即当有一个线程在对内存进行操作时，其他线程都不可以对这个内存地址进行操作，直到该线程完成操作，其他线程才能对该内存地址进行操作，而其他线程则处于等待状态
 
-## 3.2. 互斥量（锁）
+## 3.2. 互斥锁
 
-### 3.2.1. 互斥量的基本概念
+### 3.2.1. 互斥锁基本概念
+
+- 为避免线程更新共享变量时出现问题，可以使用互斥量（mutex 是 mutual exclusion 的缩写）来确保同时仅有一个线程可以访问某项共享资源。可以使用互斥量来保证对任意共享资源的原子访问
+- 互斥量有两种状态：已锁定（locked）和未锁定（unlocked）。任何时候，至多只有一个线程可以锁定该互斥量。试图对已经锁定的某一互斥量再次加锁，将可能阻塞线程或者报错失败，具体取决于加锁时使用的方法
+- 一旦线程锁定互斥量，随即成为该互斥量的所有者，只有所有者才能给互斥量解锁。一般情况下，对每一共享资源（可能由多个相关变量组成）会使用不同的互斥量，每一线程在访问同一资源时将采用如下协议：
+  - 针对共享资源锁定互斥量
+  - 访问共享资源
+  - 对互斥量解锁
 
 ### 3.2.2. 互斥量相关操作函数
 
 ```cpp {class=line-numbers}
-pthread_mutex_t
-int pthread_mutex_init(pthread_mutex_t *restrict mutex, const pthread_mutexattr_t *restrict attr);
-int pthread_mutex_destroy(pthread_mutex_t *mutex);
+#include <pthread.h>
+
+/* 静态分配初始化 */
+pthread_mutex_t fastmutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t recmutex = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
+pthread_mutex_t errchkmutex = PTHREAD_ERRORCHECK_MUTEX_INITIALIZER_NP;
+
+/* 动态分配初始化 */
+int pthread_mutexattr_init(pthread_mutexattr_t *attr); /* 总是返回 0 */
+int pthread_mutexattr_destroy(pthread_mutexattr_t *attr); /* 总是返回 0 */
+int pthread_mutexattr_gettype(const pthread_mutexattr_t *attr, int *kind); /* 总是返回 0 */
+int pthread_mutexattr_settype(pthread_mutexattr_t *attr, int kind); /* 成功返回 0，失败返回错误号 */
+
+int pthread_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *mutexattr); /* 总是返回 0 */
+int pthread_mutex_destroy(pthread_mutex_t *mutex); /* 成功返回 0，失败返回错误号 */
+
+/* 加锁和解锁操作 */
 int pthread_mutex_lock(pthread_mutex_t *mutex);
+/**
+   * @brief:
+   *  - 尝试锁定给定的一个锁变量，若该锁变量之前未锁定，则调用线程将成功锁定该锁变量并立即返回
+   *  - 若锁变量先前已被其它线程锁定，则调用线程被阻塞直到该锁变量被解锁‘
+   *  - 若锁变量先前已被自己锁定，则其处理行为取决于锁的属性，LinuxThread 支持的锁的属性有以下几种：
+   *    - PTHREAD_MUTEX_FAST_NP：将调用线程挂起，造成死锁
+   *    - PTHREAD_MUTEX_RECURSIVE_NP：立即返回错误码 EDEADLK
+   *    - PTHREAD_MUTEX_ERRORCHECK_NP：立即返回成功码，并记录对该锁变量的加锁次数，拥有锁的线程必须调用相同次数的 pthread_mutex_unlock() 才能解锁该锁变量
+   *    - 默认情况下为 PTHREAD_MUTEX_FAST_NP，NP 后缀表示不可扩展
+   * @param:
+   *  - mutex：尝试锁定的锁变量
+   * @return:
+   *  - 成功返回 0，失败返回非 0 错误号
+   **/
+
 int pthread_mutex_trylock(pthread_mutex_t *mutex);
+/**
+   * @brief:
+   *  - 尝试锁定给定的一个锁变量，但是其为非阻塞调用
+   *  - 如果锁变量先前已被其它线程锁定（或者锁变量属性为 "fast" 时被先前已被自身锁定），其立即返回错误号 EBUSY
+   * @param:
+   *  - mutex：尝试锁定的锁变量
+   * @return:
+   *  - 成功返回 0，失败返回非 0 错误号
+   **/
+
 int pthread_mutex_unlock(pthread_mutex_t *mutex);
 /**
    * @brief:
-   *  - 
-   * @param: 
-   *  - 
+   *  - 解锁给定的锁变量 mutex，其对不同属性的锁变量具有不同的操作，具体参考 man 文档
+   * @param:
+   *  - mutex
    * @return:
-   *  - 成功：
-   *  - 失败：
+   *  - 成功返回 0，失败返回非 0 错误号
    **/
 ```
 
@@ -304,7 +393,7 @@ int pthread_mutex_unlock(pthread_mutex_t *mutex);
 
 ## 3.4. 读写锁
 
-### 3.4.1. 读写锁的基本概念
+### 3.4.1. 读写锁基本概念
 
 ### 3.4.2. 读写锁相关操作函数
 
@@ -328,6 +417,10 @@ int pthread_rwlock_unlock(pthread_rwlock_t *rwlock);
    **/
 ```
 ## 3.5. 自旋锁
+
+### 3.5.1. 自旋锁基本概念
+
+### 3.5.2. 自旋锁相关函数
 
 ## 3.6. 条件变量
 
