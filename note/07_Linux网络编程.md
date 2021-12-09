@@ -87,7 +87,7 @@ uint32_t ntohl(uint32_t netlong); // 主机字节序 - 网络字节序
 ## 7.3. TCP 通信流程 
 
 ```cpp {class=line-numbers}
-
+netstat -anp | grep port_num
 ```
 
 ## 7.4. UDP 通信流程
