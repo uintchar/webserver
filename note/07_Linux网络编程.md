@@ -37,19 +37,19 @@
   - [5.8. write()/send()/sendto()](#58-writesendsendto)
   - [5.9. TCP通信流程](#59-tcp通信流程)
   - [5.10. UDP通信流程](#510-udp通信流程)
-  - [5.11. 多进程并发服务器](#511-多进程并发服务器)
-  - [5.12. 多线程并发服务器](#512-多线程并发服务器)
-- [6. I/O多路复用](#6-io多路复用)
-  - [6.1. select](#61-select)
-  - [6.2. poll](#62-poll)
-  - [6.3. epoll](#63-epoll)
-- [7. Unix/Linux 五种 IO 模型](#7-unixlinux-五种-io-模型)
-  - [7.1. 阻塞/非阻塞、同步/异步](#71-阻塞非阻塞同步异步)
-  - [7.2. 阻塞](#72-阻塞)
-  - [7.3. 非阻塞](#73-非阻塞)
-  - [7.4. I/O 复用](#74-io-复用)
-  - [7.5. 信号驱动](#75-信号驱动)
-  - [7.6. 异步](#76-异步)
+- [6. 多进程并发服务器](#6-多进程并发服务器)
+- [7. 多线程并发服务器](#7-多线程并发服务器)
+- [8. I/O多路复用](#8-io多路复用)
+  - [8.1. select](#81-select)
+  - [8.2. poll](#82-poll)
+  - [8.3. epoll](#83-epoll)
+- [9. Unix/Linux 五种 IO 模型](#9-unixlinux-五种-io-模型)
+  - [9.1. 阻塞/非阻塞、同步/异步](#91-阻塞非阻塞同步异步)
+  - [9.2. 阻塞](#92-阻塞)
+  - [9.3. 非阻塞](#93-非阻塞)
+  - [9.4. I/O 复用](#94-io-复用)
+  - [9.5. 信号驱动](#95-信号驱动)
+  - [9.6. 异步](#96-异步)
 
 # 1. 网络结构模式
 
@@ -323,7 +323,7 @@ const char *inet_ntop(int af, const void *src, char *dst, socklen_t size);
 ```cpp {class=line-numbers}
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <arpa/inet.h> // 包含了这个头文件，上面两个就可以省略
+#include <arpa/inet.h> /* 包含了这个头文件，上面两个就可以省略 */
 
 int socket(int domain, int type, int protocol);
 /**
@@ -346,6 +346,9 @@ int socket(int domain, int type, int protocol);
 ## 5.2. close()
 
 ```cpp {class=line-numbers}
+#include <unistd.h>
+
+int close(int sockfd)
 /**
   * @brief:
   *  - 
@@ -360,8 +363,14 @@ int socket(int domain, int type, int protocol);
 ## 5.3. bind()
 
 ```cpp {class=line-numbers}
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h> /* 包含了这个头文件，上面两个就可以省略 */
+
+int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen); 
 /**
   * @brief:
+  *  - 命名 socket，将 sockfd 和本地的 IP + 端口号进行绑定
   *  - 
   * @param: 
   *  - 
@@ -415,7 +424,31 @@ int socket(int domain, int type, int protocol);
 
 ## 5.7. read()/recv()/recvfrom()
 
+```cpp {class=line-numbers}
+/**
+  * @brief:
+  *  - 
+  * @param: 
+  *  - 
+  * @return:
+  *  - 成功：
+  *  - 失败：
+  **/
+```
+
 ## 5.8. write()/send()/sendto()
+
+```cpp {class=line-numbers}
+/**
+  * @brief:
+  *  - 
+  * @param: 
+  *  - 
+  * @return:
+  *  - 成功：
+  *  - 失败：
+  **/
+```
 
 ## 5.9. TCP通信流程 
 
@@ -429,47 +462,71 @@ netstat -anp | grep port_num
 
 ```
 
-## 5.11. 多进程并发服务器
+# 6. 多进程并发服务器
 
-## 5.12. 多线程并发服务器
+# 7. 多线程并发服务器
 
-# 6. I/O多路复用
+# 8. I/O多路复用
 
-## 6.1. select
+## 8.1. select
+
+```cpp {class=line-numbers}
+/**
+  * @brief:
+  *  - 
+  * @param: 
+  *  - 
+  * @return:
+  *  - 成功：
+  *  - 失败：
+  **/
+```
+
+## 8.2. poll
+
+```cpp {class=line-numbers}
+/**
+  * @brief:
+  *  - 
+  * @param: 
+  *  - 
+  * @return:
+  *  - 成功：
+  *  - 失败：
+  **/
+```
+
+## 8.3. epoll
+
+```cpp {class=line-numbers}
+/**
+  * @brief:
+  *  - 
+  * @param: 
+  *  - 
+  * @return:
+  *  - 成功：
+  *  - 失败：
+  **/
+```
+
+# 9. Unix/Linux 五种 IO 模型
+
+## 9.1. 阻塞/非阻塞、同步/异步
 
 ```cpp {class=line-numbers}
 
 ```
 
-## 6.2. poll
+## 9.2. 阻塞
 
-```cpp {class=line-numbers}
+## 9.3. 非阻塞
 
-```
+## 9.4. I/O 复用
 
-## 6.3. epoll
+## 9.5. 信号驱动
 
-```cpp {class=line-numbers}
-
-```
-
-# 7. Unix/Linux 五种 IO 模型
-
-## 7.1. 阻塞/非阻塞、同步/异步
-
-```cpp {class=line-numbers}
-
-```
-
-## 7.2. 阻塞
-
-## 7.3. 非阻塞
-
-## 7.4. I/O 复用
-
-## 7.5. 信号驱动
-
-## 7.6. 异步
+## 9.6. 异步
 
 ```cpp {class=line-numbers}
 
