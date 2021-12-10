@@ -1105,9 +1105,17 @@ int main()
 - 本地套接字的作用：本地的进程间通信
   - 有关系的进程间的通信
   - 没有关系的进程间的通信
-  - 本地套接字实现流程和网络套接字类似，一般呢采用TCP的通信流程。
+  - 本地套接字实现流程和网络套接字类似，一般呢采用 TCP 的通信流程。
 
 ```cpp {class=line-numbers}
+#include <sys/un.h>
+#define UNIX_PATH_MAX 108
+struct sockaddr_un
+{
+  sa_family_t sun_family;       /* 地址族协议 af_local */
+  char sun_path[UNIX_PATH_MAX]; /* 套接字文件的路径, 这是一个伪文件, 大小永远=0 */
+};
+
 /* localsocket_server.c */
 
 #include <stdio.h>
@@ -1577,18 +1585,48 @@ int main()
 
 # 7. I/O多路复用
 
+I/O 多路复用使得程序能同时监听多个文件描述符，能够提高程序的性能，Linux 下实现 I/O 多路复用的系统调用主要有 `select(), poll(), epoll()`。
+
 ## 7.1. select
 
+- 首先构造一个关于文件描述符的列表，将要监听的文件描述符添加到该列表中
+- 调用 `select()`，监听该列表中的文件描述符，直到这些描述符中的一个或者多个进行 I/O 操作时，该函数才返回
+  - `select()` 是阻塞
+  - `select()` 对文件描述符的检测操作是由内核完成的
+- 在返回时，`select()` 会告诉进程有多少（哪些）描述符要进行 I/O 操作
+
 ```cpp {class=line-numbers}
+#include <sys/time.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/select.h>
+int select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout);
 /**
   * @brief:
-  *  - 
+  *  - 委托内核检测给定文件描述符集合中发生 I/O 操作的文件描述符
   * @param: 
-  *  - 
+  *  - nfds：比 3 个文件描述符集合中所包含的最大文件描述符号还要大 1
+  *  - readfds：要检测的读文件描述符的集合，对应于 socket 对方发送来数据
+  *  - writefds：要检测的写文件描述符的集合
+  *  - exceptfds：要检测的发生异常的文件描述符集合
+  *  - timeout：设置阻塞超时时间，在循环中使用应确保每次循环都更新
+  *    - NULL：永久阻塞，直到检测到了文件描述符发生变化
+  *    - = 0：不阻塞
+  *    - > 0：阻塞对应时间
   * @return:
   *  - 成功：
-  *  - 失败：
+  *    - 返回处于三个文件描述符集合中处于就绪态的文件描述符的个数，对同一个 fd 会多次计算
+  *    - 0 表示超时，此时每个返回的文件描述符集都会被清空
+  *  - 失败：-1，并设置 errno
+  *    - EBADF：三个文件描述符集合中存在非法文件描述符（例如当前没打开）
+  *    - EINTR：该调用被信号处理例程中断，此时 select() 不会自动恢复
+  * 
   **/
+
+void FD_CLR(int fd, fd_set *set);  /* 将参数文件描述符fd对应的标志位设置为0 */
+int FD_ISSET(int fd, fd_set *set); /* 判断 fd 对应的标志位是 0 还是 1 */
+void FD_SET(int fd, fd_set *set);  /* 将参数文件描述符 fd 对应的标志位设置为 1 */
+void FD_ZERO(fd_set *set);         /* fd_set 一共有1024 bits, 全部初始化为 0 */
 ```
 
 ## 7.2. poll
