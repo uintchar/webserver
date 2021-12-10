@@ -35,8 +35,11 @@
   - [5.6. connect()](#56-connect)
   - [5.7. read()/recv()/recvfrom()](#57-readrecvrecvfrom)
   - [5.8. write()/send()/sendto()](#58-writesendsendto)
-  - [5.9. TCP通信流程](#59-tcp通信流程)
-  - [5.10. UDP通信流程](#510-udp通信流程)
+  - [5.9. shutdown()](#59-shutdown)
+  - [5.10. 端口复用](#510-端口复用)
+  - [5.11. 常用查看网络相关信息的命令](#511-常用查看网络相关信息的命令)
+  - [5.12. TCP通信流程](#512-tcp通信流程)
+  - [5.13. UDP通信流程](#513-udp通信流程)
 - [6. 多进程并发服务器](#6-多进程并发服务器)
 - [7. 多线程并发服务器](#7-多线程并发服务器)
 - [8. I/O多路复用](#8-io多路复用)
@@ -299,8 +302,6 @@ int inet_pton(int af, const char *src, void *dst);
   *  - 失败：0 表示 src 不是 IP 地址标准字符串表示，-1 表示错误
   **/
 
-
-// 将网络字节序的整数，转换成点分十进制的IP地址字符串
 const char *inet_ntop(int af, const void *src, char *dst, socklen_t size);
 /**
   * @brief:
@@ -492,15 +493,248 @@ ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
                const struct sockaddr *dest_addr, socklen_t addrlen);
 ```
 
-## 5.9. TCP通信流程
+## 5.9. shutdown()
+
+当 TCP 链接中主动断开连接方 A 向另一方 B 发送 FIN 请求断开连接，另一端 B 回应 ACK 之后（A 端进入 FIN_WAIT_2 状态），并没有立即发送 FIN 给 A，A 方处于半连接状态（半关闭），此时 A 可以接收 B 发送的数据，但是 A 已经不能再向 B 发送数据。可以使用 `shutdown()` 来控制实现半连接
+
+使用 `close()` 中止一个连接，但它只是减少描述符的引用计数，并不直接关闭连接，只有当描述符的引用计数为 0 时才关闭连接。`shutdown()` 不考虑描述符的引用计数，直接关闭描述符。也可选择中止一个方向的连接，只中止读或只中止写。
+
+如果有多个进程共享一个套接字，`close()` 每被调用一次，计数减 1 ，直到计数为 0 时，也就是所有进程都调用了 `close()`，套接字将被释放
+
+在多进程中如果一个进程调用了 `shutdown(sfd, SHUT_RDWR)` 后，其它的进程将无法进行通信。但如果一个进程 close(sfd) 将不会影响到其它进程
+
+```cpp {class=line-numbers}
+ #include <sys/socket.h>
+
+int shutdown(int sockfd, int how);
+/**
+  * @brief:
+  *  - 以指定的方式 how 关闭 sockfd
+  * @param: 
+  *  - sockfd：要关闭的文件描述符
+  *  - how：可以以以下几种方式关闭 sockfd
+  *    - SHUT_RD(0)：关闭 sockfd 上的读功能，此选项将不允许 sockfd 进行读操作。该套接字不再接收数据，任何当前在套接字接受缓冲区的数据将被默认丢弃掉
+  *    - SHUT_WR(1): 关闭 sockfd 的写功能，此选项将不允许 sockfd 进行写操作
+  *    - SHUT_RDWR(2):关闭 sockfd 的读写功能。相当于调用 shutdown 两次：首先是 SHUT_RD，然后以 SHUT_WR
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+```
+
+## 5.10. 端口复用
+
+端口复用最常用的用途是：
+- 防止服务器重启时之前绑定的端口还未释放
+- 程序突然退出而系统没有释放端口
+
+```cpp {class=line-numbers}
+#include <sys/types.h>
+#include <sys/socket.h>
+
+int setsockopt(int sockfd, int level, int optname, const void *optval, socklen_t optlen);
+/**
+  * @brief:
+  *  - 设置套接字的属性（不仅仅能设置端口复用）
+  *  - 设置端口复用的时机是在服务器绑定端口之前
+  * @param: 
+  *  - sockfd：指定的文件描述符
+  *  - level：级别 - SOL_SOCKET (端口复用的级别)
+  *  - optname：选项的名称
+  *    - SO_REUSEADDR
+  *    - SO_REUSEPORT
+  *  - optval：端口复用的值（整型）
+  *    - 1：可以复用
+  *    - 0：不可以复用
+  *  - optlen：optval 的大小
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+```
+
+## 5.11. 常用查看网络相关信息的命令
+
+```cpp {class=line-numbers}
+netstat
+  -a：所有的socket
+  -p：显示正在使用socket的程序的名称
+  -n：直接使用IP地址，而不通过域名服务器
+
+netstat -anp | grep port_num
+```
+
+## 5.12. TCP通信流程
 
 ![TCP 通信流程图]()
 
 ```cpp {class=line-numbers}
-netstat -anp | grep port_num
+/* tcp_server.c */
+#include <stdio.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdlib.h>
+
+int main()
+{
+  /* 创建 socket，获得用于监听的套接字 */
+
+  int lfd = socket(AF_INET, SOCK_STREAM, 0);
+  if (lfd == -1)
+  {
+    perror("socket");
+    exit(EXIT_FAILURE);
+  }
+
+  /* 绑定 socket */
+  struct sockaddr_in saddr; /* IPv4 socket 地址类型 */
+  saddr.sin_family = AF_INET;
+  /* inet_pton(AF_INET, "172.26.50.243", saddr.sin_addr.s_addr); */
+  saddr.sin_addr.s_addr = INADDR_ANY; /* 0.0.0.0 */
+  saddr.sin_port = htons(9999);
+  int ret = bind(lfd, (struct sockaddr *)&saddr, sizeof(saddr));
+  if (ret == -1)
+  {
+    perror("bind");
+    exit(EXIT_FAILURE);
+  }
+
+  /* 监听客户端连接 */
+  ret = listen(lfd, 8);
+  if (ret == -1)
+  {
+    perror("listen");
+    exit(EXIT_FAILURE);
+  }
+
+  /* 接受客户端连接 */
+  struct sockaddr_in clientaddr;
+  int len = sizeof(clientaddr);
+  int cfd = accept(lfd, (struct sockaddr *)&clientaddr, &len);
+  if (cfd == -1)
+  {
+    perror("accept");
+    exit(EXIT_FAILURE);
+  }
+
+  /* 输出客户端的信息 */
+  char clientIP[16];
+  inet_ntop(AF_INET, &clientaddr.sin_addr.s_addr, clientIP, sizeof(clientIP));
+  unsigned short clientPort = ntohs(clientaddr.sin_port);
+  printf("client ip is %s, port is %d\n", clientIP, clientPort);
+
+  /* 通信 */
+  char recv_buf[1024] = {0};
+  char send_buf[1024] = {0};
+  memset(recv_buf, -1, sizeof(recv_buf));
+  memset(send_buf, -1, sizeof(send_buf));
+
+  while (1)
+  {
+    int num = read(cfd, recv_buf, sizeof(recv_buf));
+    if (num == -1)
+    {
+      perror("read");
+      exit(EXIT_FAILURE);
+    }
+    else if (num > 0)
+    {
+      printf("recv client data : %s", recv_buf);
+    }
+    else if (num == 0)
+    {
+      /* 表示客户端断开连接 */
+      printf("clinet closed...");
+      break;
+    }
+
+    fgets(send_buf, sizeof(send_buf), stdin); /* 会读入换行符 */
+    num = write(cfd, send_buf, strlen(send_buf) + 1);
+    if (num == -1)
+    {
+      perror("write");
+      exit(EXIT_FAILURE);
+    }
+  }
+
+  close(cfd);
+  close(lfd);
+
+  return 0;
+}
 ```
 
-## 5.10. UDP通信流程
+```cpp {class=line-numbers}
+/* tcp_client.c */
+#include <stdio.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdlib.h>
+
+int main()
+{
+  /* 创建套接字 */
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd == -1)
+  {
+    perror("socket");
+    exit(-1);
+  }
+
+  /* 主动连接服务器端，需要指定服务器的地址，客户端自身则会随机绑定一个端口号 */
+  struct sockaddr_in serveraddr;
+  serveraddr.sin_family = AF_INET;
+  inet_pton(AF_INET, "172.26.50.243", &serveraddr.sin_addr.s_addr);
+  serveraddr.sin_port = htons(9999);
+  int ret = connect(fd, (struct sockaddr *)&serveraddr, sizeof(serveraddr));
+  if (ret == -1)
+  {
+    perror("connect");
+    exit(-1);
+  }
+
+  /* 通信 */
+  char recv_buf[1024] = {0};
+  char send_buf[1024] = {0};
+  memset(recv_buf, -1, sizeof(recv_buf));
+  memset(send_buf, -1, sizeof(send_buf));
+  while (1)
+  {
+    fgets(send_buf, sizeof(send_buf), stdin); /* 会读入换行符 */
+    int num =  write(fd, send_buf, strlen(send_buf) + 1);
+    if (num == -1)
+    {
+      perror("read");
+      exit(-1);
+    }
+
+    num = read(fd, recv_buf, sizeof(recv_buf));
+    if (num == -1)
+    {
+      perror("read");
+      exit(-1);
+    }
+    else if (num > 0)
+    {
+      printf("recv server data : %s", recv_buf);
+    }
+    else if (num == 0)
+    {
+      // 表示服务器端断开连接
+      printf("server closed...");
+      break;
+    }
+  }
+
+  close(fd);
+
+  return 0;
+}
+```
+
+## 5.13. UDP通信流程
 
 ![UDP 通信流程图]()
 
