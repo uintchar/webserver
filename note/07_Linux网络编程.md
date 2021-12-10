@@ -36,10 +36,11 @@
   - [5.7. read()/recv()/recvfrom()](#57-readrecvrecvfrom)
   - [5.8. write()/send()/sendto()](#58-writesendsendto)
   - [5.9. shutdown()](#59-shutdown)
-  - [5.10. 端口复用](#510-端口复用)
-  - [5.11. 常用查看网络相关信息的命令](#511-常用查看网络相关信息的命令)
-  - [5.12. TCP通信流程](#512-tcp通信流程)
-  - [5.13. UDP通信流程](#513-udp通信流程)
+  - [5.10. 常用查看网络相关信息的命令](#510-常用查看网络相关信息的命令)
+  - [5.11. TCP通信流程](#511-tcp通信流程)
+  - [5.12. UDP通信流程](#512-udp通信流程)
+  - [5.13. 端口复用、广播、组播](#513-端口复用广播组播)
+  - [5.14. 本地套接字](#514-本地套接字)
 - [6. 并发服务器的简单实现](#6-并发服务器的简单实现)
   - [6.1. 多进程并发服务器](#61-多进程并发服务器)
   - [6.2. 多线程并发服务器](#62-多线程并发服务器)
@@ -465,9 +466,35 @@ ssize_t read(int fd, void *buf, size_t count);
 #include <arpa/inet.h> /* 包含了这个头文件，上面两个就可以省略 */
 
 ssize_t recv(int sockfd, void *buf, size_t len, int flags);
+/**
+  * @brief:
+  *  - 流式 socket
+  * @param: 
+  *   - sockfd：
+  *   - buf：
+  *   - len：
+  *   - flags：
+  * @return:
+  *  - 成功：
+  *  - 失败：-1，并设置 errno
+  **/
 
 ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                  struct sockaddr *src_addr, socklen_t *addrlen);
+/**
+  * @brief:
+  *  - 数据报 socket
+  * @param: 
+  *   - sockfd：通信的 fd
+  *   - buf：接收数据的缓冲区
+  *   - len：接收缓冲区的大小
+  *   - flags：0
+  *   - src_addr：传出参数，用来保存通信对方的地址信息，不需要可以指定为 NULL
+  *   - addrlen：地址所占内存的大小
+  * @return:
+  *  - 成功：实际读取到的字节数，0 表示 EOF
+  *  - 失败：-1，并设置 errno
+  **/
 ```
 
 ## 5.8. write()/send()/sendto()
@@ -489,9 +516,35 @@ ssize_t write(int fd, const void *buf, size_t count);
 #include <arpa/inet.h> /* 包含了这个头文件，上面两个就可以省略 */
 
 ssize_t send(int sockfd, const void *buf, size_t len, int flags);
+/**
+  * @brief:
+  *  - 流式 socket
+  * @param: 
+  *   - sockfd：
+  *   - buf：
+  *   - len：
+  *   - flags：
+  * @return:
+  *  - 成功：实际发送的字节数
+  *  - 失败：-1，并设置 errno
+  **/
 
 ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
                const struct sockaddr *dest_addr, socklen_t addrlen);
+/**
+  * @brief:
+  *  - 数据报 socket
+  * @param: 
+  *   - sockfd：通信的 fd
+  *   - buf：待发送数据缓冲区
+  *   - len：待发送数据的长度
+  *   - flags：0
+  *   - dest_addr：通信对方的地址信息
+  *   - addrlen：dest_addr 所指地址所占内存的大小
+  * @return:
+  *  - 成功：实际发送的字节数
+  *  - 失败：-1，并设置 errno
+  **/
 ```
 
 ## 5.9. shutdown()
@@ -523,41 +576,7 @@ int shutdown(int sockfd, int how);
   **/
 ```
 
-## 5.10. 端口复用
-
-端口复用最常用的用途是：
-- 防止服务器重启时之前绑定的端口还未释放
-- 程序突然退出而系统没有释放端口
-
-```cpp {class=line-numbers}
-#include <sys/types.h>
-#include <sys/socket.h>
-
-int setsockopt(int sockfd, int level, int optname, const void *optval, socklen_t optlen);
-/**
-  * @brief:
-  *  - 设置套接字的属性（不仅仅能设置端口复用）
-  *  - 设置端口复用的时机是在服务器绑定端口之前
-  * @param: 
-  *  - sockfd：指定的文件描述符
-  *  - level：级别 - SOL_SOCKET (端口复用的级别)
-  *  - optname：选项的名称
-  *    - SO_REUSEADDR
-  *    - SO_REUSEPORT
-  *  - optval：端口复用的值（整型）
-  *    - 1：可以复用
-  *    - 0：不可以复用
-  *  - optlen：optval 的大小
-  * @return:
-  *  - 成功：0
-  *  - 失败：-1，并设置 errno
-  **/
-
-int optval = 1;
-setsockopt(lfd, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval));
-```
-
-## 5.11. 常用查看网络相关信息的命令
+## 5.10. 常用查看网络相关信息的命令
 
 ```cpp {class=line-numbers}
 netstat
@@ -568,7 +587,7 @@ netstat
 netstat -anp | grep port_num
 ```
 
-## 5.12. TCP通信流程
+## 5.11. TCP通信流程
 
 ![TCP 通信流程图]()
 
@@ -738,12 +757,508 @@ int main()
 }
 ```
 
-## 5.13. UDP通信流程
+## 5.12. UDP通信流程
 
 ![UDP 通信流程图]()
 
 ```cpp {class=line-numbers}
+/* udp_server.c */
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <arpa/inet.h>
+
+int main()
+{
+  int fd = socket(PF_INET, SOCK_DGRAM, 0);
+  if (fd == -1)
+  {
+    perror("socket");
+    exit(-1);
+  }
+
+  struct sockaddr_in addr;
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(9999);
+  addr.sin_addr.s_addr = INADDR_ANY;
+  int ret = bind(fd, (struct sockaddr *)&addr, sizeof(addr));
+  if (ret == -1)
+  {
+    perror("bind");
+    exit(-1);
+  }
+
+  while (1)
+  {
+    char recvbuf[128];
+    char ipbuf[16];
+
+    struct sockaddr_in cliaddr;
+    int len = sizeof(cliaddr);
+
+    int num = recvfrom(fd, recvbuf, sizeof(recvbuf), 0, (struct sockaddr *)&cliaddr, &len);
+    inet_ntop(AF_INET, &cliaddr.sin_addr.s_addr, ipbuf, sizeof(ipbuf));
+    
+    printf("client IP : %s, Port : %d\n", ipbuf, ntohs(cliaddr.sin_port));
+    printf("client say : %s\n", recvbuf);
+
+    sendto(fd, recvbuf, strlen(recvbuf) + 1, 0, (struct sockaddr *)&cliaddr, sizeof(cliaddr));
+  }
+
+  close(fd);
+  return 0;
+}
+```
+
+```cpp {class=line-numbers}
+/* udp_client.c */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <arpa/inet.h>
+
+int main()
+{
+  int fd = socket(PF_INET, SOCK_DGRAM, 0);
+  if (fd == -1)
+  {
+    perror("socket");
+    exit(-1);
+  }
+
+  struct sockaddr_in saddr;
+  saddr.sin_family = AF_INET;
+  saddr.sin_port = htons(9999);
+  inet_pton(AF_INET, "127.0.0.1", &saddr.sin_addr.s_addr);
+
+  int num = 0;
+  while (1)
+  {
+    char sendBuf[128];
+    sprintf(sendBuf, "hello , i am client %d\n", num++);
+    sendto(fd, sendBuf, strlen(sendBuf) + 1, 0, (struct sockaddr *)&saddr, sizeof(saddr));
+
+    int len = recvfrom(fd, sendBuf, sizeof(sendBuf), 0, NULL, NULL);
+    printf("server say : %s\n", sendBuf);
+
+    sleep(2);
+  }
+
+  close(fd);
+  return 0;
+}
+```
+
+## 5.13. 端口复用、广播、组播
+
+- 端口复用最常用的用途是：
+  - 防止服务器重启时之前绑定的端口还未释放
+  - 程序突然退出而系统没有释放端口
+</br>
+
+- 向子网中多台计算机发送消息，并且子网中所有的计算机都可以接收到发送方发送的消息，每个广播消息都包含一个特殊的IP地址，这个 IP 中子网内主机标志部分的二进制全部为 1。
+  - 只能在局域网中使用
+  - 客户端需要绑定服务器广播使用的端口，才可以接收到广播消息
+</br>
+
+- 单播地址标识单个 IP 接口，广播地址标识某个子网的所有 IP 接口，多播地址标识一组 IP 接口。单播和广播是寻址方案的两个极端（要么单个要么全部），多播则意在两者之间提供一种折中方案。多播数据报只应该由对它感兴趣的接口接收，也就是说由运行相应多播会话应用系统的主机上的接口接收。另外，广播一般局限于局域网内使用，而多播则既可以用于局域网，也可以跨广域网使用。
+  - 组播既可以用于局域网，也可以用于广域网
+  - 客户端需要加入多播组，才能接收到多播的数据
+
+```cpp {class=line-numbers}
+#include <sys/types.h>
+#include <sys/socket.h>
+
+int setsockopt(int sockfd, int level, int optname, const void *optval, socklen_t optlen);
+/**
+  * @brief:
+  *  - 设置套接字的属性（不仅仅能设置端口复用）
+  *  - 设置端口复用的时机是在服务器绑定端口之前
+  * @param: 
+  *  - sockfd：指定的文件描述符
+  *  - level：级别
+  *    - SOL_SOCKET：复用、广播
+  *    - IPPROTO_IP：组播
+  *  - optname：选项的名称
+  *    - SO_REUSEADDR：地址复用
+  *    - SO_REUSEPORT：端口复用
+  *    - SO_BROADCAST：广播
+  *    - IP_MULTICAST_IF：服务器设置组播信息，外出接口
+  *    - IP_ADD_MEMBERSHIP：客户端加入多播组
+  *  - optval：端口复用的值（整型）
+  *    - 1：可以复用（广播、组播）
+  *    - 0：不可以复用（广播、组播）
+  *    - struct in_addr：服务器设置组播信息
+  *    - struct ip_mreq：客户端加入多播组
+  *  - optlen：optval 的大小
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+
+struct ip_mreq
+{
+  /* IP multicast address of group. */
+  struct in_addr imr_multiaddr; // 组播的IP地址
+  /* Local IP address of interface. */
+  struct in_addr imr_interface; // 本地的IP地址
+};
+
+typedef uint32_t in_addr_t;
+struct in_addr
+{
+  in_addr_t s_addr;
+};
+
+/* 设置端口复用 */
+int optval = 1;
+setsockopt(lfd, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval));
+```
+
+```cpp {class=line-numbers}
+/* 广播程序应用示例 */
+
+/* broadcast_server.c */
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <arpa/inet.h>
+
+int main()
+{
+  int fd = socket(PF_INET, SOCK_DGRAM, 0);
+  if (fd == -1)
+  {
+    perror("socket");
+    exit(-1);
+  }
+
+  /* 设置广播属性 */
+  int op = 1;
+  setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &op, sizeof(op));
+
+  /* 创建一个广播的地址 */
+  struct sockaddr_in cliaddr;
+  cliaddr.sin_family = AF_INET;
+  cliaddr.sin_port = htons(9999);
+  inet_pton(AF_INET, "172.26.50.255", &cliaddr.sin_addr.s_addr);
+
+  int num = 0;
+  while (1)
+  {
+    char sendBuf[128];
+    sprintf(sendBuf, "hello, client....%d\n", num++);
+    sendto(fd, sendBuf, strlen(sendBuf) + 1, 0, (struct sockaddr *)&cliaddr, sizeof(cliaddr));
+    printf("broadcast data: %s\n", sendBuf);
+    sleep(3);
+  }
+
+  close(fd);
+  return 0;
+}
+
+/* broadcast_client.c */
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <arpa/inet.h>
+
+int main()
+{
+  int fd = socket(PF_INET, SOCK_DGRAM, 0);
+  if (fd == -1)
+  {
+    perror("socket");
+    exit(-1);
+  }
+
+  struct in_addr in;
+
+  /* 客户端绑定本地的 IP 和端口 */
+  struct sockaddr_in addr;
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(9999);
+  addr.sin_addr.s_addr = INADDR_ANY;
+  int ret = bind(fd, (struct sockaddr *)&addr, sizeof(addr));
+  if (ret == -1)
+  {
+    perror("bind");
+    exit(-1);
+  }
+
+  while (1)
+  {
+    char buf[128];
+    int num = recvfrom(fd, buf, sizeof(buf), 0, NULL, NULL);
+    printf("server say : %s\n", buf);
+  }
+
+  close(fd);
+  return 0;
+}
+```
+
+```cpp {class=line-numbers}
+/* 组播程序应用示例 */
+
+/* multicast_server.c */
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <arpa/inet.h>
+
+int main()
+{
+  int fd = socket(PF_INET, SOCK_DGRAM, 0);
+  if (fd == -1)
+  {
+    perror("socket");
+    exit(-1);
+  }
+
+  /* 设置多播的属性，设置外出接口 */
+  struct in_addr imr_multiaddr;
+  
+  /* 初始化多播地址 */
+  inet_pton(AF_INET, "239.0.0.10", &imr_multiaddr.s_addr);
+  setsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF, &imr_multiaddr, sizeof(imr_multiaddr));
+
+  /* 初始化客户端的地址信息 */
+  struct sockaddr_in cliaddr;
+  cliaddr.sin_family = AF_INET;
+  cliaddr.sin_port = htons(9999);
+  inet_pton(AF_INET, "239.0.0.10", &cliaddr.sin_addr.s_addr);
+
+  int num = 0;
+  while (1)
+  {
+
+    char sendBuf[128];
+    sprintf(sendBuf, "hello, client....%d\n", num++);
+    sendto(fd, sendBuf, strlen(sendBuf) + 1, 0, (struct sockaddr *)&cliaddr, sizeof(cliaddr));
+    printf("multicast data: %s\n", sendBuf);
+    sleep(1);
+  }
+
+  close(fd);
+  return 0;
+}
+
+/* multicast_client.c */
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <arpa/inet.h>
+
+int main()
+{
+  int fd = socket(PF_INET, SOCK_DGRAM, 0);
+  if (fd == -1)
+  {
+    perror("socket");
+    exit(-1);
+  }
+
+  struct in_addr in;
+  
+  /* 客户端绑定本地的 IP 和端口 */
+  struct sockaddr_in addr;
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(9999);
+  addr.sin_addr.s_addr = INADDR_ANY;
+  int ret = bind(fd, (struct sockaddr *)&addr, sizeof(addr));
+  if (ret == -1)
+  {
+    perror("bind");
+    exit(-1);
+  }
+
+  struct ip_mreq op;
+  inet_pton(AF_INET, "239.0.0.10", &op.imr_multiaddr.s_addr);
+  op.imr_interface.s_addr = INADDR_ANY;
+
+  /* 加入到多播组 */
+  setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &op, sizeof(op));
+
+  while (1)
+  {
+    char buf[128];
+    int num = recvfrom(fd, buf, sizeof(buf), 0, NULL, NULL);
+    printf("server say : %s\n", buf);
+  }
+
+  close(fd);
+  return 0;
+}
+```
+
+## 5.14. 本地套接字
+
+- 本地套接字的作用：本地的进程间通信
+  - 有关系的进程间的通信
+  - 没有关系的进程间的通信
+  - 本地套接字实现流程和网络套接字类似，一般呢采用TCP的通信流程。
+
+```cpp {class=line-numbers}
+/* localsocket_server.c */
+
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <arpa/inet.h>
+#include <sys/un.h>
+
+int main()
+{
+
+  unlink("server.sock"); /* 防止本地套接字文件被占用 */
+
+  int lfd = socket(AF_LOCAL, SOCK_STREAM, 0);
+  if (lfd == -1)
+  {
+    perror("socket");
+    exit(-1);
+  }
+
+  /* 绑定本地套接字文件 */
+  struct sockaddr_un addr;
+  addr.sun_family = AF_LOCAL;
+  strcpy(addr.sun_path, "server.sock");
+  int ret = bind(lfd, (struct sockaddr *)&addr, sizeof(addr));
+  if (ret == -1)
+  {
+    perror("bind");
+    exit(-1);
+  }
+
+  ret = listen(lfd, 100);
+  if (ret == -1)
+  {
+    perror("listen");
+    exit(-1);
+  }
+
+  struct sockaddr_un cliaddr;
+  int len = sizeof(cliaddr);
+  int cfd = accept(lfd, (struct sockaddr *)&cliaddr, &len);
+  if (cfd == -1)
+  {
+    perror("accept");
+    exit(-1);
+  }
+
+  printf("client socket filename: %s\n", cliaddr.sun_path);
+
+  while (1)
+  {
+    char buf[128];
+    int len = recv(cfd, buf, sizeof(buf), 0);
+    if (len == -1)
+    {
+      perror("recv");
+      exit(-1);
+    }
+    else if (len == 0)
+    {
+      printf("client closed....\n");
+      break;
+    }
+    else if (len > 0)
+    {
+      printf("client say : %s\n", buf);
+      send(cfd, buf, len, 0);
+    }
+  }
+
+  close(cfd);
+  close(lfd);
+
+  return 0;
+}
+```
+
+```cpp {class=line-numbers}
+/* localsocket_client.c */
+
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <arpa/inet.h>
+#include <sys/un.h>
+
+int main()
+{
+
+  unlink("client.sock"); /* 防止本地套接字文件被占用 */
+
+  int cfd = socket(AF_LOCAL, SOCK_STREAM, 0);
+  if (cfd == -1)
+  {
+    perror("socket");
+    exit(-1);
+  }
+
+  /* 绑定本地套接字文件 */
+  struct sockaddr_un addr;
+  addr.sun_family = AF_LOCAL;
+  strcpy(addr.sun_path, "client.sock");
+  int ret = bind(cfd, (struct sockaddr *)&addr, sizeof(addr));
+  if (ret == -1)
+  {
+    perror("bind");
+    exit(-1);
+  }
+
+  struct sockaddr_un seraddr;
+  seraddr.sun_family = AF_LOCAL;
+  strcpy(seraddr.sun_path, "server.sock");
+  ret = connect(cfd, (struct sockaddr *)&seraddr, sizeof(seraddr));
+  if (ret == -1)
+  {
+    perror("connect");
+    exit(-1);
+  }
+
+  int num = 0;
+  while (1)
+  {
+    char buf[128];
+    sprintf(buf, "hello, i am client %d\n", num++);
+    send(cfd, buf, strlen(buf) + 1, 0);
+    printf("client say : %s\n", buf);
+
+    int len = recv(cfd, buf, sizeof(buf), 0);
+    if (len == -1)
+    {
+      perror("recv");
+      exit(-1);
+    }
+    else if (len == 0)
+    {
+      printf("server closed....\n");
+      break;
+    }
+    else if (len > 0)
+    {
+      printf("server say : %s\n", buf);
+    }
+
+    sleep(3);
+  }
+
+  close(cfd);
+  return 0;
+}
 ```
 
 # 6. 并发服务器的简单实现
