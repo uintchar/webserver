@@ -40,19 +40,20 @@
   - [5.11. 常用查看网络相关信息的命令](#511-常用查看网络相关信息的命令)
   - [5.12. TCP通信流程](#512-tcp通信流程)
   - [5.13. UDP通信流程](#513-udp通信流程)
-- [6. 多进程并发服务器](#6-多进程并发服务器)
-- [7. 多线程并发服务器](#7-多线程并发服务器)
-- [8. I/O多路复用](#8-io多路复用)
-  - [8.1. select](#81-select)
-  - [8.2. poll](#82-poll)
-  - [8.3. epoll](#83-epoll)
-- [9. Unix/Linux 五种 IO 模型](#9-unixlinux-五种-io-模型)
-  - [9.1. 阻塞/非阻塞、同步/异步](#91-阻塞非阻塞同步异步)
-  - [9.2. 阻塞](#92-阻塞)
-  - [9.3. 非阻塞](#93-非阻塞)
-  - [9.4. I/O 复用](#94-io-复用)
-  - [9.5. 信号驱动](#95-信号驱动)
-  - [9.6. 异步](#96-异步)
+- [6. 并发服务器的简单实现](#6-并发服务器的简单实现)
+  - [6.1. 多进程并发服务器](#61-多进程并发服务器)
+  - [6.2. 多线程并发服务器](#62-多线程并发服务器)
+- [7. I/O多路复用](#7-io多路复用)
+  - [7.1. select](#71-select)
+  - [7.2. poll](#72-poll)
+  - [7.3. epoll](#73-epoll)
+- [8. Unix/Linux 五种 IO 模型](#8-unixlinux-五种-io-模型)
+  - [8.1. 阻塞/非阻塞、同步/异步](#81-阻塞非阻塞同步异步)
+  - [8.2. 阻塞](#82-阻塞)
+  - [8.3. 非阻塞](#83-非阻塞)
+  - [8.4. I/O 复用](#84-io-复用)
+  - [8.5. 信号驱动](#85-信号驱动)
+  - [8.6. 异步](#86-异步)
 
 # 1. 网络结构模式
 
@@ -551,6 +552,9 @@ int setsockopt(int sockfd, int level, int optname, const void *optval, socklen_t
   *  - 成功：0
   *  - 失败：-1，并设置 errno
   **/
+
+int optval = 1;
+setsockopt(lfd, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval));
 ```
 
 ## 5.11. 常用查看网络相关信息的命令
@@ -742,13 +746,323 @@ int main()
 
 ```
 
-# 6. 多进程并发服务器
+# 6. 并发服务器的简单实现
 
-# 7. 多线程并发服务器
+## 6.1. 多进程并发服务器
 
-# 8. I/O多路复用
+```cpp {class=line-numbers}
+/* tcpserver_mulserver.c */
 
-## 8.1. select
+#include <stdio.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <signal.h>
+#include <wait.h>
+#include <errno.h>
+
+void recyle_child(int arg)
+{
+  while (1)
+  {
+    int ret = waitpid(-1, NULL, WNOHANG);
+    if (ret == -1) /* 所有的子进程都回收了 */
+      break;
+    else if (ret == 0) /* 还有子进程活着 */
+      break;
+    else if (ret > 0)
+      printf("子进程 %d 被回收了\n", ret);
+  }
+}
+
+int main()
+{
+  /* 利用 SIGCHLD 信号回收子进程，防止产生大量僵尸进程 */
+  struct sigaction act;
+  act.sa_flags = 0;
+  sigemptyset(&act.sa_mask);
+  act.sa_handler = recyle_child;
+  sigaction(SIGCHLD, &act, NULL);
+
+  int lfd = socket(PF_INET, SOCK_STREAM, 0);
+  if (lfd == -1)
+  {
+    perror("socket");
+    exit(-1);
+  }
+
+  struct sockaddr_in saddr;
+  saddr.sin_family = AF_INET;
+  saddr.sin_port = htons(9999);
+  saddr.sin_addr.s_addr = INADDR_ANY;
+  int ret = bind(lfd, (struct sockaddr *)&saddr, sizeof(saddr));
+  if (ret == -1)
+  {
+    perror("bind");
+    exit(-1);
+  }
+
+  ret = listen(lfd, 128);
+  if (ret == -1)
+  {
+    perror("listen");
+    exit(-1);
+  }
+
+  while (1)
+  {
+    struct sockaddr_in cliaddr;
+    int len = sizeof(cliaddr);
+    int cfd = accept(lfd, (struct sockaddr *)&cliaddr, &len);
+    if (cfd == -1)
+    {
+      if (errno == EINTR)
+      {
+        continue; /* 被中断打断了产生的错误 */
+      }
+      perror("accept");
+      exit(-1);
+    }
+
+    /* 每一个连接进来，创建一个子进程跟客户端通信 */
+    pid_t pid = fork();
+    if (pid == 0)
+    {
+      char cliIp[16];
+      inet_ntop(AF_INET, &cliaddr.sin_addr.s_addr, cliIp, sizeof(cliIp));
+      unsigned short cliPort = ntohs(cliaddr.sin_port);
+      printf("client ip is : %s, prot is %d\n", cliIp, cliPort);
+
+      char recvBuf[1024];
+      while (1)
+      {
+        int len = read(cfd, &recvBuf, sizeof(recvBuf));
+        if (len == -1)
+        {
+          perror("read");
+          exit(-1);
+        }
+        else if (len > 0)
+        {
+          printf("recv client : %s\n", recvBuf);
+        }
+        else if (len == 0)
+        {
+          printf("client closed....\n");
+          break;
+        }
+
+        write(cfd, recvBuf, strlen(recvBuf) + 1);
+      }
+      close(cfd);
+      exit(0); /* 退出当前子进程 */
+    }
+  }
+
+  close(lfd);
+  return 0;
+}
+```
+
+```cpp {class=line-numbers}
+/* tcp_client.c */
+
+#include <stdio.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdlib.h>
+
+int main()
+{
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd == -1)
+  {
+    perror("socket");
+    exit(-1);
+  }
+
+  struct sockaddr_in saddr;
+  saddr.sin_family = AF_INET;
+  inet_pton(AF_INET, "172.26.50.243", &saddr.sin_addr.s_addr);
+  saddr.sin_port = htons(9999);
+  int ret = connect(fd, (struct sockaddr *)&saddr, sizeof(saddr));
+  if (ret == -1)
+  {
+    perror("connect");
+    exit(-1);
+  }
+
+  char recvBuf[1024];
+  int i = 0;
+  while (1)
+  {
+    sprintf(recvBuf, "data : %d\n", i++);
+    write(fd, recvBuf, strlen(recvBuf) + 1);
+
+    int len = read(fd, recvBuf, sizeof(recvBuf));
+    if (len == -1)
+    {
+      perror("read");
+      exit(-1);
+    }
+    else if (len > 0)
+    {
+      printf("recv server : %s\n", recvBuf);
+    }
+    else if (len == 0)
+    {
+      printf("server closed...");
+      break;
+    }
+
+    sleep(2);
+  }
+
+  close(fd);
+
+  return 0;
+}
+```
+
+## 6.2. 多线程并发服务器
+
+```cpp {class=line-numbers}
+/* tcpserver_multhread.c */
+
+#include <stdio.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <pthread.h>
+
+struct sock_info
+{
+  int fd;
+  struct sockaddr_in addr;
+  pthread_t tid;
+};
+
+/* 全局变量用于记录子线程处理的客户端 socket 连接的相关信息 */
+struct sock_info sock_infos[4];
+
+void *working(void *arg)
+{
+  /* 获取客户端的信息 */
+  struct sock_info *pinfo = (struct sock_info *)arg;
+
+  char cliIp[16];
+  inet_ntop(AF_INET, &pinfo->addr.sin_addr.s_addr, cliIp, sizeof(cliIp));
+  unsigned short cliPort = ntohs(pinfo->addr.sin_port);
+  printf("client ip is : %s, prot is %d\n", cliIp, cliPort);
+
+  char recvBuf[1024];
+  while (1)
+  {
+    int len = read(pinfo->fd, &recvBuf, sizeof(recvBuf));
+    if (len == -1)
+    {
+      perror("read");
+      exit(-1);
+    }
+    else if (len > 0)
+    {
+      printf("recv client : %s\n", recvBuf);
+    }
+    else if (len == 0)
+    {
+      printf("client closed....\n");
+      break;
+    }
+
+    write(pinfo->fd, recvBuf, strlen(recvBuf) + 1);
+  }
+
+  close(pinfo->fd);
+  printf("thread %ld exit\n", pinfo->tid);
+
+  pinfo->fd = -1;
+  pinfo->tid = -1;
+
+
+  return NULL;
+}
+
+int main()
+{
+  int lfd = socket(PF_INET, SOCK_STREAM, 0);
+  if (lfd == -1)
+  {
+    perror("socket");
+    exit(-1);
+  }
+
+  struct sockaddr_in saddr;
+  saddr.sin_family = AF_INET;
+  saddr.sin_port = htons(9999);
+  saddr.sin_addr.s_addr = INADDR_ANY;
+  int ret = bind(lfd, (struct sockaddr *)&saddr, sizeof(saddr));
+  if (ret == -1)
+  {
+    perror("bind");
+    exit(-1);
+  }
+
+  ret = listen(lfd, 128);
+  if (ret == -1)
+  {
+    perror("listen");
+    exit(-1);
+  }
+
+  int max = sizeof(sock_infos) / sizeof(sock_infos[0]);
+  for (int i = 0; i < max; i++)
+  {
+    bzero(&sock_infos[i], sizeof(sock_infos[i]));
+    sock_infos[i].fd = -1;
+    sock_infos[i].tid = -1;
+  }
+
+  /* 循环等待客户端连接，一旦一个客户端连接进来，就创建一个子线程进行通信 */
+  while (1)
+  {
+    struct sockaddr_in cliaddr;
+    int len = sizeof(cliaddr);
+    int cfd = accept(lfd, (struct sockaddr *)&cliaddr, &len);
+    struct sock_info *pinfo;
+    for (int i = 0; i < max; i++)
+    {
+      /* 从这个数组中找到一个可以用的 sock_info 元素 */
+      if (sock_infos[i].fd == -1)
+      {
+        pinfo = &sock_infos[i];
+        break;
+      }
+      if (i == max - 1)
+      {
+        printf("max nums client access, please wait\n");
+        sleep(2);
+        i = 0; /* 从头开始遍历 */
+      }
+    }
+
+    pinfo->fd = cfd;
+    memcpy(&pinfo->addr, &cliaddr, len);
+
+    pthread_create(&pinfo->tid, NULL, working, pinfo);
+    pthread_detach(pinfo->tid);
+  }
+
+  close(lfd);
+  return 0;
+}
+```
+
+# 7. I/O多路复用
+
+## 7.1. select
 
 ```cpp {class=line-numbers}
 /**
@@ -762,7 +1076,7 @@ int main()
   **/
 ```
 
-## 8.2. poll
+## 7.2. poll
 
 ```cpp {class=line-numbers}
 /**
@@ -776,7 +1090,7 @@ int main()
   **/
 ```
 
-## 8.3. epoll
+## 7.3. epoll
 
 ```cpp {class=line-numbers}
 /**
@@ -790,23 +1104,23 @@ int main()
   **/
 ```
 
-# 9. Unix/Linux 五种 IO 模型
+# 8. Unix/Linux 五种 IO 模型
 
-## 9.1. 阻塞/非阻塞、同步/异步
+## 8.1. 阻塞/非阻塞、同步/异步
 
 ```cpp {class=line-numbers}
 
 ```
 
-## 9.2. 阻塞
+## 8.2. 阻塞
 
-## 9.3. 非阻塞
+## 8.3. 非阻塞
 
-## 9.4. I/O 复用
+## 8.4. I/O 复用
 
-## 9.5. 信号驱动
+## 8.5. 信号驱动
 
-## 9.6. 异步
+## 8.6. 异步
 
 ```cpp {class=line-numbers}
 
