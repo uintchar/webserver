@@ -10,7 +10,7 @@
   - [2.2. TCP/IP四层模型](#22-tcpip四层模型)
 - [3. TCP/IP网络基础](#3-tcpip网络基础)
   - [3.1. 链路层](#31-链路层)
-  - [3.2. 网络层：IP](#32-网络层ip)
+  - [3.2. 网络层](#32-网络层)
   - [3.3. 传输层](#33-传输层)
     - [3.3.1. TCP](#331-tcp)
     - [3.3.2. UDP](#332-udp)
@@ -123,7 +123,7 @@
 
 网络接口层常见协议有：ARP协议（Address Resolution Protocol 地址解析协议）、RARP协议（Reverse Address Resolution Protocol 反向地址解析协议）。
 
-## 3.2. 网络层：IP
+## 3.2. 网络层
 
 网络层常见协议有：IP 协议（Internet Protocol 因特网互联协议）、ICMP 协议（Internet Control Message Protocol 因特网控制报文协议）、IGMP 协议（Internet Group Management Protocol 因特网组管理协议）
 
