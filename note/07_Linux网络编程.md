@@ -351,12 +351,11 @@ int socket(int domain, int type, int protocol);
 int close(int sockfd)
 /**
   * @brief:
-  *  - 
+  *  - 关闭文件描述符 fd
   * @param: 
-  *  - 
   * @return:
-  *  - 成功：
-  *  - 失败：
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
   **/
 ```
 
@@ -371,92 +370,139 @@ int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
 /**
   * @brief:
   *  - 命名 socket，将 sockfd 和本地的 IP + 端口号进行绑定
-  *  - 
+  *  - 一般来讲会将服务器的地址绑定到一个周知的地址
   * @param: 
-  *  - 
+  *  - sockfd：通过 socket() 得到的文件描述符
+  *  - addr：需要绑定的 socket 地址，地址里封装了 IP 和端口号
+  *  - addrlen：第二个参数结构体所占内存的大小
   * @return:
-  *  - 成功：
-  *  - 失败：
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
   **/
 ```
 
 ## 5.4. listen()
 
 ```cpp {class=line-numbers}
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h> /* 包含了这个头文件，上面两个就可以省略 */
+
+int listen(int sockfd, int backlog);
 /**
   * @brief:
-  *  - 
+  *  - 监听指定 socket 上的连接
   * @param: 
-  *  - 
+  *  - sockfd：通过 socket() 获得的文件描述符
+  *  - backlog：未连接的与已经连接的和的最大值
   * @return:
-  *  - 成功：
-  *  - 失败：
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
   **/
 ```
 
 ## 5.5. accept()
 
 ```cpp {class=line-numbers}
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h> /* 包含了这个头文件，上面两个就可以省略 */
+
+int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
 /**
   * @brief:
-  *  - 
+  *  - 接受客户端的连接，默认是一个阻塞的函数，阻塞等待客户端的连接
   * @param: 
-  *  - 
+  *  - sockfd：用于监听的文件描述符
+  *  - addr：传出参数，记录了连接成功后客户端的地址信息（IP、端口号）
+  *  - addrlen：socket 地址所占内存的大小
   * @return:
-  *  - 成功：
-  *  - 失败：
+  *  - 成功：用于与客户端进行通信的文件描述符
+  *  - 失败：-1，并设置 errno
   **/
 ```
 
 ## 5.6. connect()
 
 ```cpp {class=line-numbers}
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h> /* 包含了这个头文件，上面两个就可以省略 */
+
+int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
 /**
   * @brief:
-  *  - 
+  *  - 客户端主动连接指定的服务器
   * @param: 
-  *  - 
+  *  - sockfd：通过 socket() 得到的用于通信的文件描述符
+  *  - sockaddr：客户端要连接的服务器的 socket 地址信息（IP、端口号）
+  *  - addrlen：socket 地址所占内存的大小
   * @return:
-  *  - 成功：
-  *  - 失败：
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
   **/
 ```
 
 ## 5.7. read()/recv()/recvfrom()
 
 ```cpp {class=line-numbers}
+#include <unistd.h>
+ssize_t read(int fd, void *buf, size_t count);
 /**
   * @brief:
-  *  - 
+  *  - 在指定的文件描述符 fd 上读取 count 字节的数据将其保存到 buf 指定的地址中
+  *  - 可能会被信号中断
   * @param: 
-  *  - 
   * @return:
-  *  - 成功：
-  *  - 失败：
+  *  - 成功：实际读取到的字节数
+  *  - 失败：-1，并设置 errno
   **/
+
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h> /* 包含了这个头文件，上面两个就可以省略 */
+
+ssize_t recv(int sockfd, void *buf, size_t len, int flags);
+
+ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
+                 struct sockaddr *src_addr, socklen_t *addrlen);
 ```
 
 ## 5.8. write()/send()/sendto()
 
 ```cpp {class=line-numbers}
+#include <unistd.h>
+ssize_t write(int fd, const void *buf, size_t count);
 /**
   * @brief:
-  *  - 
+  *  - 向指定的文件描述符 fd 写入 buf 中的 count 各字节的数据
   * @param: 
-  *  - 
   * @return:
-  *  - 成功：
-  *  - 失败：
+  *  - 成功：实际写入的数据
+  *  - 失败：-1，并设置 errno
   **/
+
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h> /* 包含了这个头文件，上面两个就可以省略 */
+
+ssize_t send(int sockfd, const void *buf, size_t len, int flags);
+
+ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
+               const struct sockaddr *dest_addr, socklen_t addrlen);
 ```
 
-## 5.9. TCP通信流程 
+## 5.9. TCP通信流程
+
+![TCP 通信流程图]()
 
 ```cpp {class=line-numbers}
 netstat -anp | grep port_num
 ```
 
 ## 5.10. UDP通信流程
+
+![UDP 通信流程图]()
 
 ```cpp {class=line-numbers}
 
