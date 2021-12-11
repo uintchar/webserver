@@ -49,7 +49,13 @@
   - [7.2. poll](#72-poll)
   - [7.3. select() 和 poll() 的比较](#73-select-和-poll-的比较)
   - [7.4. epoll](#74-epoll)
+    - [7.4.1. 水平触发和边缘触发](#741-水平触发和边缘触发)
+    - [7.4.2. `epoll()` 和 `select(), poll()` 的比较](#742-epoll-和-select-poll-的比较)
   - [7.5. 文件描述符何时就绪](#75-文件描述符何时就绪)
+  - [7.6. 应用示例](#76-应用示例)
+    - [7.6.1. `select()` 实现并发服务器](#761-select-实现并发服务器)
+    - [7.6.2. `poll()` 实现并发服务器](#762-poll-实现并发服务器)
+    - [7.6.3. `epoll()` 实现并发服务器](#763-epoll-实现并发服务器)
 - [8. Unix/Linux 五种 IO 模型](#8-unixlinux-五种-io-模型)
   - [8.1. 阻塞/非阻塞、同步/异步](#81-阻塞非阻塞同步异步)
   - [8.2. 阻塞](#82-阻塞)
@@ -1660,6 +1666,16 @@ struct pollfd
   *  - 失败：-1，并设置 errno
   *    - EINTR：该调用被一个信号处理例程打断，poll() 不会自动恢复
   **/
+
+/*
+常见的 poll 检测事件：
+  - POLLIN 
+  - POLLOUT 
+*/
+
+struct pollfd myfd;
+myfd.fd = 8;
+myfd.events = POLLIN | POLLOUT;
 ```
 
 ## 7.3. select() 和 poll() 的比较
@@ -1680,17 +1696,93 @@ struct pollfd
 
 ## 7.4. epoll
 
+`epoll()` 的核心数据结构称作 epoll 实例
+
 ```cpp {class=line-numbers}
+#include <sys/epoll.h>
+
+int epoll_create(int size);
 /**
   * @brief:
-  *  - 
+  *  - 创建一个 epoll 实例，在内核中创建相关数据：
+  *    - 兴趣列表，需要检测的文件描述符的信息（红黑树）
+  *    - 就绪列表，存放就绪的文件描述符信息（双向链表）
+  *  - 返回代表 epoll 实例的文件描述符，当不用时需 close()
+  *  - 多个文件描述符可能引用到相同的 epoll 实例，这是由于调用了 fork() 或者 dup() 这样类似的函数所致
   * @param: 
-  *  - 
+  *  - size：目前已不再使用
+  * @return:
+  *  - 成功：返回操作 epoll 实例的文件描述符
+  *  - 失败：-1，并设置 errno
+  **/
+
+typedef union epoll_data
+{
+  void *ptr;
+  int fd;
+  uint32_t u32;
+  uint64_t u64;
+} epoll_data_t;
+
+struct epoll_event
+{
+  uint32_t events;   /* Epoll events */
+  epoll_data_t data; /* User data variable */
+};
+
+/*
+常见的Epoll检测事件：
+  - EPOLLIN 
+  - EPOLLOUT 
+  - EPOLLERR
+*/
+
+int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
+/**
+  * @brief:
+  *  - 对 epoll 实例进行管理：添加文件描述符信息，删除信息，修改信息
+  * @param: 
+  *  - epfd：epoll 实例对应的文件描述符
+  *  - op：要进行的操作
+  *    - EPOLL_CTL_ADD：添加
+  *    - EPOLL_CTL_MOD：修改
+  *    - EPOLL_CTL_DEL：删除
+  *  - fd：要修改兴趣列表中的哪一个文件描述符，
+  *    - 可以表示：管道、FIFO、套接字、 POSIX 消息队列、 inotify 实例、终端、设备，甚至是另一个 epoll 实例的文件描述符
+  *    - 不可以表示：普通文件或目录文件的文件描述符（会出现 EPERM 错误）
+  *  - event：要检测的 I/O 事件
   * @return:
   *  - 成功：
   *  - 失败：
   **/
+
+/* max_user_watches 上限 */
+/* 因为每个注册到 epoll 实例上的文件描述符需要占用一小段不能被交换的内核内存空间 */
+/* 因此内核提供了一个接口用来定义每个用户可以注册到 epoll 实例上的文件描述符总数 */
+
+int epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout);
+/**
+  * @brief:
+  *  - 检测函数，单个 epoll_wait()调 用能返回多个就绪态文件描述符的信息
+  * @param: 
+  *  - epfd：epoll 实例对应的文件描述符
+  *  - events：传出参数，保存处于就绪态的文件描述符的信息，由用户负责申请内存空间
+  *  - maxevents：events 数组的大小
+  *  - timeout：阻塞时间
+  *    - 0：不阻塞
+  *    - -1：阻塞
+  *    - >0：阻塞时长（毫秒）
+  * @return:
+  *  - 成功：
+  *    - >0：处于就绪态的文件描述符的个数
+  *    - =0：超时返回
+  *  - 失败：-1，并设置 errno
+  **/
 ```
+
+### 7.4.1. 水平触发和边缘触发
+
+### 7.4.2. `epoll()` 和 `select(), poll()` 的比较
 
 ## 7.5. 文件描述符何时就绪
 
@@ -1698,6 +1790,26 @@ struct pollfd
 - 终端和伪终端
 - 管道和FIFO
 - 套接字
+
+## 7.6. 应用示例
+
+### 7.6.1. `select()` 实现并发服务器
+
+```cpp {class=line-numbers}
+
+```
+
+### 7.6.2. `poll()` 实现并发服务器
+
+```cpp {class=line-numbers}
+
+```
+
+### 7.6.3. `epoll()` 实现并发服务器
+
+```cpp {class=line-numbers}
+
+```
 
 # 8. Unix/Linux 五种 IO 模型
 
