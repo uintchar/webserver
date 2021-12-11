@@ -1649,12 +1649,13 @@ struct pollfd
   short events;  /* 委托内核检测的 fd 上发生的事件 */
   short revents; /* 返回 fd 上实际发生的事件 */
 };
+
 /**
   * @brief:
   *  - 委托内核对给定 fds 集合中发生 I/O 操作的 fd 进行检测
   * @param: 
   *  - fds：struct pollfd 类型的结构体数组，保存了需要检测的文件描述符集合
-  *  - nfds：fds 数组中最后一个有效元素的下标 + 1
+  *  - nfds：fds 数组中元素的个数
   *  - timeout：阻塞时长
   *    - 0：不阻塞
   *    - -1：阻塞，当检测的 fds 上有 I/O 发生时，解除阻塞
@@ -1671,6 +1672,14 @@ struct pollfd
 常见的 poll 检测事件：
   - POLLIN 
   - POLLOUT 
+*/
+
+/*
+如果我们对某个特定的文件描述符上的事件不感兴趣，可以:
+- 将 events 设为 0，或
+- 给 fd 字段指定一个负值（例如，如果值为非零，取它的相反数）
+这将导致对应的 events 字段被忽略，且 revents 字段将总是返回 0
+这两种方法都可以用来（也许只是暂时的）关闭对单个文件描述符的检查，而不需要重新建立整个 fds 列表
 */
 
 struct pollfd myfd;
@@ -1752,8 +1761,8 @@ int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
   *    - 不可以表示：普通文件或目录文件的文件描述符（会出现 EPERM 错误）
   *  - event：要检测的 I/O 事件
   * @return:
-  *  - 成功：
-  *  - 失败：
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
   **/
 
 /* max_user_watches 上限 */
@@ -1796,13 +1805,294 @@ int epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout)
 ### 7.6.1. `select()` 实现并发服务器
 
 ```cpp {class=line-numbers}
+/* client.c */
+#include <stdio.h>
+#include <arpa/inet.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+
+int main()
+{
+  int fd = socket(PF_INET, SOCK_STREAM, 0);
+  if (fd == -1)
+  {
+    perror("socket");
+    return -1;
+  }
+
+  struct sockaddr_in seraddr;
+  seraddr.sin_family = AF_INET;
+  inet_pton(AF_INET, "127.0.0.1", &seraddr.sin_addr.s_addr);
+  seraddr.sin_port = htons(9999);
+  int ret = connect(fd, (struct sockaddr *)&seraddr, sizeof(seraddr));
+  if (ret == -1)
+  {
+    perror("connect");
+    return -1;
+  }
+
+  int num = 0;
+  while (1)
+  {
+    char sendBuf[1024] = {0};
+    sprintf(sendBuf, "num = %d", num++);
+    write(fd, sendBuf, strlen(sendBuf) + 1);
+
+    int len = read(fd, sendBuf, sizeof(sendBuf));
+    if (len == -1)
+    {
+      perror("read");
+      return -1;
+    }
+    else if (len > 0)
+    {
+      printf("%s\n", sendBuf);
+    }
+    else
+    {
+      printf("server close...\n");
+      break;
+    }
+    
+    sleep(3);
+  }
+
+  close(fd);
+
+  return 0;
+}
+
+```
+
+```cpp {class=line-numbers}
+/* select_server.c */
+
+#include <stdio.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/select.h>
+
+int main()
+{
+  int lfd = socket(PF_INET, SOCK_STREAM, 0);
+  if (lfd == -1)
+  {
+    perror("socket");
+    exit(-1);
+  }
+
+  struct sockaddr_in saddr;
+  saddr.sin_port = htons(9999);
+  saddr.sin_family = AF_INET;
+  saddr.sin_addr.s_addr = INADDR_ANY;
+  int ret = 0;
+  ret = bind(lfd, (struct sockaddr *)&saddr, sizeof(saddr));
+  if (ret == -1)
+  {
+    perror("bind");
+    exit(-1);
+  }
+
+  ret = listen(lfd, 8);
+  if (ret == -1)
+  {
+    perror("listen");
+    exit(-1);
+  }
+
+  /* 创建一个fd_set的集合，存放的是需要检测的文件描述符 */
+  fd_set rdset, tmp;
+  FD_ZERO(&rdset);
+  FD_SET(lfd, &rdset);
+  int maxfd = lfd;
+
+  while (1)
+  {
+    tmp = rdset; /* 每次循环需要重新初始化要检测的文件描述符 */
+
+    /* 调用select系统函数，让内核帮检测哪些文件描述符有数据 */
+    ret = select(maxfd + 1, &tmp, NULL, NULL, NULL);
+    if (ret == -1)
+    {
+      perror("select");
+      exit(-1);
+    }
+    else if (ret == 0)
+    {
+      continue;
+    }
+    else if (ret > 0) /* 说明检测到了有文件描述符的对应的缓冲区的数据发生了改变 */
+    {
+      if (FD_ISSET(lfd, &tmp)) /* 表示有新的客户端连接进来了 */
+      {
+        struct sockaddr_in cliaddr;
+        int len = sizeof(cliaddr);
+        int cfd = accept(lfd, (struct sockaddr *)&cliaddr, &len);
+
+        /* 将新的文件描述符加入到集合中 */
+        FD_SET(cfd, &rdset);
+
+        /* 更新最大的文件描述符 */
+        maxfd = maxfd > cfd ? maxfd : cfd;
+      }
+
+      for (int i = 0; i <= maxfd; i++)
+      {
+        if (i != lfd && FD_ISSET(i, &tmp))
+        {
+          /* 说明这个文件描述符对应的客户端发来了数据 */
+          char buf[1024] = {0};
+          int len = read(i, buf, sizeof(buf));
+          if (len == -1)
+          {
+            perror("read");
+            exit(-1);
+          }
+          else if (len == 0)
+          {
+            printf("client(accept fd = %d) closed...\n", i);
+            close(i);
+            FD_CLR(i, &rdset);
+          }
+          else if (len > 0)
+          {
+            printf("server recv data from client(accept fd = %d) : %s\n", i, buf);
+            write(i, buf, strlen(buf) + 1);
+          }
+        }
+      }
+    }
+  }
+  close(lfd);
+  return 0;
+}
 
 ```
 
 ### 7.6.2. `poll()` 实现并发服务器
 
 ```cpp {class=line-numbers}
+/* poll_server.c */
 
+#include <stdio.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <poll.h>
+
+int main()
+{
+  int lfd = socket(PF_INET, SOCK_STREAM, 0);
+  if (lfd == -1)
+  {
+    perror("socket");
+    exit(-1);
+  }
+
+  struct sockaddr_in saddr;
+  saddr.sin_port = htons(9999);
+  saddr.sin_family = AF_INET;
+  saddr.sin_addr.s_addr = INADDR_ANY;
+
+  int ret = 0;
+  ret = bind(lfd, (struct sockaddr *)&saddr, sizeof(saddr));
+  if (ret == -1)
+  {
+    perror("bind");
+    exit(-1);
+  }
+
+  ret = listen(lfd, 128);
+  if (ret == -1)
+  {
+    perror("listen");
+    exit(-1);
+  }
+
+  /* 初始化检测的文件描述符数组 */
+  const int MAXFD_NUMS = 4;
+  struct pollfd fds[MAXFD_NUMS];
+  for (int i = 0; i < MAXFD_NUMS; i++)
+  {
+    fds[i].fd = -1;
+    fds[i].events = POLLIN;
+  }
+  fds[0].fd = lfd;
+  int nfds = 1;        /* fds 数组中最后一个有效元素的下标 + 1 */
+  int access_nums = 0; /* 接入服务器的客户端的数目 */
+
+  while (1)
+  {
+    /* 调用poll系统函数，让内核帮检测哪些文件描述符有数据 */
+    int ret = poll(fds, nfds, -1);
+    if (ret == -1)
+    {
+      perror("poll");
+      exit(-1);
+    }
+    else if (ret == 0)
+    {
+      continue;
+    }
+    else if (ret > 0)
+    {
+      /* 监听到有新连接进来且未达到能同时监听的最大数量时 */
+      if ((fds[0].revents & POLLIN) && access_nums + 1 < MAXFD_NUMS)
+      {
+        struct sockaddr_in cliaddr;
+        int len = sizeof(cliaddr);
+        int cfd = accept(lfd, (struct sockaddr *)&cliaddr, &len);
+
+        /* 将新的文件描述符加入到集合中 */
+        for (int i = 1; i < MAXFD_NUMS; ++i)
+        {
+          if (fds[i].fd == -1)
+          {
+            fds[i].fd = cfd;
+            fds[i].events = POLLIN;
+            nfds = nfds > i + 1 ? nfds : i + 1;
+            ++access_nums;
+            break;
+          }
+        }
+      }
+
+      /* 循环判断每一个客户端是否有数据到来 */
+      for (int i = 1; i < nfds; ++i)
+      {
+        if (fds[i].revents & POLLIN) /* 说明这个文件描述符对应的客户端发来了数据 */
+        {
+          char buf[1024] = {0};
+          int len = read(fds[i].fd, buf, sizeof(buf));
+          if (len == -1)
+          {
+            perror("read");
+            exit(-1);
+          }
+          else if (len == 0)
+          {
+            printf("client(pollfd array index = %d) closed...\n", i);
+            close(fds[i].fd);
+            fds[i].fd = -1; /* 负值指示内核暂时忽略检查该元素 */
+            --access_nums;  /* 接入客户端数目减一 */
+          }
+          else if (len > 0)
+          {
+            printf("server recv data from client(pollfd array index = %d) : %s\n", i, buf);
+            write(fds[i].fd, buf, strlen(buf) + 1);
+          }
+        }
+      }
+    }
+  }
+
+  close(lfd);
+  return 0;
+}
 ```
 
 ### 7.6.3. `epoll()` 实现并发服务器
