@@ -1422,7 +1422,7 @@ struct timespec
   * @param: 
   *  - mqdes：消息队列描述符
   *  - msg_ptr：待发送消息所在缓冲区地址
-  *  - msg_len：待发送消息的长度，可以为0，但是必能超过 mq_msgsize，否则返回 EMSGSIZE 错误
+  *  - msg_len：待发送消息的长度，可以为0，但是不能超过 mq_msgsize，否则返回 EMSGSIZE 错误
   *  - msg_prio：优先级（0 表示最低优先级），无需优先级则可都设为 0
   *  - abs_timeout：阻塞情况下可以设置阻塞一定超时时长后仍未成功发送消息则立即失败返回 ETIMEDOUT 错误
   * @return:
