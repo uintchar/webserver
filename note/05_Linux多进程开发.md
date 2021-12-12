@@ -1425,7 +1425,7 @@ struct timespec
   *  - msg_ptr：待发送消息所在缓冲区地址
   *  - msg_len：待发送消息的长度，可以为0，但是必能超过 mq_msgsize，否则返回 EMSGSIZE 错误
   *  - msg_prio：优先级（0 表示最低优先级），无需优先级则可都设为 0
-  *  - abs_timeout：阻塞情况下可以设置阻塞一定超时时长后仍未成功发送消息则立即返回
+  *  - abs_timeout：阻塞情况下可以设置阻塞一定超时时长后仍未成功发送消息则立即失败返回 ETIMEDOUT 错误
   * @return:
   *  - 成功：0
   *  - 失败：-1，并设置 errno
@@ -1444,6 +1444,7 @@ ssize_t mq_receive(mqd_t mqdes, char *msg_ptr, size_t msg_len, unsigned int *msg
 ssize_t mq_timedreceive(mqd_t mqdes, char *msg_ptr, size_t msg_len, unsigned int *msg_prio,
                         const struct timespec *abs_timeout);
 
+/* 将超时时间描述为自新纪元到现在的一个绝对值 */
 struct timespec
 {
   time_t tv_sec; /* seconds */
@@ -1460,27 +1461,51 @@ struct timespec
   *  - msg_ptr：存储接收到的消息的缓冲区的地址
   *  - msg_len：接收缓冲区的大小，需要大于或等于 mq_msgsize，否则会失败并返回 EMSGSIZE 错误
   *  - msg_prio：若不为 NULL，则保存消息的优先级
-  *  - abs_timeout：阻塞情况下，可设置阻塞到一定的超时时间后仍无消息可读则立即返回
+  *  - abs_timeout：阻塞情况下，可设置阻塞到一定的超时时间后仍无消息可读则立即失败返回 ETIMEDOUT 错误 
   * @return:
   *  - 成功：0
   *  - 失败：-1，并设置 errno
   *    - EAGAIN：非阻塞情况下接收消息失败返回
   *    - ETIMEDOUT：阻塞情况下超时未接收到消息失败返回
   **/
-
-
 ```
 
 ### 4.6.6. mq_notify()
 
 ```cpp {class=line-numbers}
+#include <mqueue.h>
+
+int mq_notify(mqd_t mqdes, const struct sigevent *sevp);
+
+#include <signal.h>
+struct sigevent
+{
+  int sigev_notify;                            /* Notification method */
+  int sigev_signo;                             /* Notification signal */
+  union sigval sigev_value;                    /* Data passed with notification */
+  void (*sigev_notify_function)(union sigval); /* Function used for thread notification (SIGEV_THREAD) */
+  void *sigev_notify_attributes;               /* Attributes for notification thread (SIGEV_THREAD) */
+  pid_t sigev_notify_thread_id;                /* ID of thread to signal (SIGEV_THREAD_ID) */
+};
+
+union sigval
+{
+  int sival_int;   /* Integer value */
+  void *sival_ptr; /* Pointer value */
+};
+
 /* Link with -lrt. */
 /**
   * @brief:
-  *  - 
+  *  - 注册调用进程在一条消息进入描述符 mqdes 引用的空队列时接收通知
+  *  - 在任何一个时刻都只有一个进程能够向一个特定的消息队列注册接收通知。如果一个消息队列上已经存在注册进程了，那么后续在该队列上的注册请求将会失败返回 EBUSY 错误
+  *  - 只有当一条新消息进入之前为空的队列时注册进程才会收到通知。如果在注册的时候队列中已经包含消息，那么只有当队列被清空之后有一条新消息达到之时才会发出通知
+  *  - 当向注册进程发送了一个通知之后就会删除注册信息，之后任何进程就能够向队列注册接收通知了。换句话说，只要一个进程想要持续地接收通知，那么它就必须要在每次接收到通知之后再次调用 mq_notify() 来注册自己
+  *  - 注册进程只有在当前不存在其他在该队列上调用 mq_receive()而发生阻塞的进程时才会收到通知。如果其他进程在 mq_receive() 调用中被阻塞了，那么该进程会读取消息，注册进程会保持注册状态
+  *  - 一个进程可以通过在调用 mq_notify() 时传入一个值为 NULL 的 notification 参数来撤销自己在消息通知上的注册信息
   * @param: 
-  *  - 
-  *  - 
+  *  - mqdes：消息队列描述符
+  *  - sevp：
   * @return:
   *  - 成功：0
   *  - 失败：-1，并设置 errno
@@ -1490,13 +1515,25 @@ struct timespec
 ### 4.6.6. mq_attr
 
 ```cpp {class=line-numbers}
+#include <mqueue.h>
+
+int mq_getattr(mqd_t mqdes, struct mq_attr *attr);
+int mq_setattr(mqd_t mqdes, const struct mq_attr *newattr, struct mq_attr *oldattr);
+
+struct mq_attr
+{
+  long mq_flags;   /* Flags: 0 or O_NONBLOCK */
+  long mq_maxmsg;  /* Max. number of messages on queue */
+  long mq_msgsize; /* Max. message size (bytes) */
+  long mq_curmsgs; /* Number of messages currently in queue */
+};
+
 /* Link with -lrt. */
 /**
-  * @brief:
-  *  - 
-  * @param: 
-  *  - 
-  *  - 
+  * - mq_flags：0 或 O_NONBLOCK [mq_getattr(), mq_setattr()]
+  * - mq_maxmsg：一条消息队列上可以承载的消息的数量的上限 [mq_open(), mq_getattr()]
+  * - mq_msgsize：每条消息的大小的上限 [mq_open(), mq_getattr()]
+  * - mq_curmsgs：消息队列上当前承载的消息的数量 [mq_getattr()]
   * @return:
   *  - 成功：0
   *  - 失败：-1，并设置 errno
@@ -1504,6 +1541,12 @@ struct timespec
 ```
 
 ### 4.6.7. POSIX消息队列限制
+
+- **MQ_PRIO_MAX：** 
+- **MQ_OPEN_MAX：** 指明一个进程最多能打开的消息队列数量。 SUSv3 要求这个限制最小为 _POSIX_MQ_OPEN_MAX（8）。 Linux 并没有定义这个限制，相反，由于 Linux 将消息队列描述符实现成了文件描述符，因此适用于文件描述符的限制将适用于消息队列描述符
+- **msg_max：** 为新消息队列的 `mq_maxmsg` 特性的取值规定了一个上限。这个限制的默认值是 10，最小值是 1（在早于 2.6.28 的内核中是 10），最大值由内核常量 `HARD_MSGMAX` 定义，该常量的值是通过公式 `(131072 / sizeof(void *))` 计算得来的，在 Linux/x86-32 上其值为 32768。当一个特权进程（CAP_SYS_RESOURCE）调用 `mq_open()` 时 `msg_max` 限制会被忽略，但 `HARD_MSGMAX` 仍然担当着 `mq_maxmsg` 的上限值的角色
+- **msgsize_max：** 为非特权进程创建的新消息队列的 mq_msgsize 特性的取值规定了一个上限（即使用 `mq_open()` 创建队列时 `attr.mq_msgsize` 字段的上限值）。这个限制的默认值是 8192，最小值是 128（在早于 2.6.28 的内核中是 8192），最大值是 1048576（在早于 2.6.28 的内核中是 INT_MAX）。当一个非特权进程调用 `mq_open()` 时会忽略这个限制
+- **queues_max：** 系统级别的限制，规定了系统上最多能够创建的消息队列的数量。一旦达到这个限制，就只有特权进程才能够创建新队列。这个限制的默认值是 256，其取值可以为范围从 0 到 INT_MAX 之间的任意一个值。
 
 ### 4.6.8. 应用示例
 
