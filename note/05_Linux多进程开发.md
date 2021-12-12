@@ -53,14 +53,25 @@
     - [4.5.2. 共享内存的使用步骤](#452-共享内存的使用步骤)
     - [4.5.3. 共享内存操作函数](#453-共享内存操作函数)
     - [4.5.4. 应用示例](#454-应用示例)
-  - [4.6. 守护进程](#46-守护进程)
-    - [4.6.1. 终端](#461-终端)
-    - [4.6.2. 进程组](#462-进程组)
-    - [4.6.3. 会话](#463-会话)
-    - [4.6.4. 进程组、会话操作函数](#464-进程组会话操作函数)
-    - [4.6.5. 守护进程](#465-守护进程)
-    - [4.6.6. 应用示例](#466-应用示例)
-      - [4.6.6.1. 每 1s 向磁盘文件打印当前系统时间的守护进程](#4661-每-1s-向磁盘文件打印当前系统时间的守护进程)
+  - [4.6. POSIX消息队列](#46-posix消息队列)
+    - [4.6.1. POSIX消息队列概述](#461-posix消息队列概述)
+    - [4.6.2. mq_open()](#462-mq_open)
+    - [4.6.3. mq_close()](#463-mq_close)
+    - [4.6.4. mq_unlink()](#464-mq_unlink)
+    - [4.6.5. mq_send()](#465-mq_send)
+    - [4.6.6. mq_receive()](#466-mq_receive)
+    - [4.6.6. mq_notify()](#466-mq_notify)
+    - [4.6.6. mq_attr](#466-mq_attr)
+    - [4.6.7. POSIX消息队列限制](#467-posix消息队列限制)
+    - [4.6.8. 应用示例](#468-应用示例)
+- [5. 终端、会话和守护进程](#5-终端会话和守护进程)
+  - [5.1. 终端](#51-终端)
+  - [5.2. 进程组](#52-进程组)
+  - [5.3. 会话](#53-会话)
+  - [5.4. 进程组、会话操作函数](#54-进程组会话操作函数)
+  - [5.5. 守护进程](#55-守护进程)
+    - [5.5.1. 应用示例](#551-应用示例)
+      - [5.5.1.1. 每 1s 向磁盘文件打印当前系统时间的守护进程](#5511-每-1s-向磁盘文件打印当前系统时间的守护进程)
 
 # 1. 进程概述
 
@@ -723,40 +734,40 @@ int main()
 
 ### 4.4.2. Linux 信号一览
 
-编号 | 信号名称 | 对应事件 | 默认动作
-:-: | :------: | :------- | :- 
-1  | SIGHUP    | 用户退出 shell 时，由该 shell 启动的所有进程将收到这个信号 | 终止进程
-2  | SIGINT    | 当用户按下了 `Ctrl+C` 组合键时，用户终端向正在运行中的由该终端启动的程序发出此信号 | 终止进程
-3  | SIGQUIT   | 用户按下 `Ctrl+\` 组合键时产生该信号，用户终端向正在运行中的由该终端启动的进程发出些信号 | 终止进程
-4  | SIGILL    | CPU 检测到某进程执行了非法指令 | 终止进程并产生core文件
-5  | SIGTRAP   | 该信号由断点指令或其他 `trap` 指令产生 | 终止进程并产生core文件
-6  | SIGABRT   | 调用 `abort` 函数时产生该信号 | 终止进程并产生core文件
-7  | SIGBUS    | 非法访问内存地址，包括内存对齐出错 | 终止进程并产生core文件
-8  | SIGFPE    | 在发生致命的运算错误时发出。不仅包括浮点运算错误，还包括溢出及除数为0等所有的算法错误 | 终止进程并产生core文件
-9  | SIGKILL   | 无条件终止进程。该信号不能被忽略，处理和阻塞 | 终止进程，可以杀死任何进程
-10 | SIGUSR1   | 用户定义的信号。即程序员可以在程序中定义并使用该信号 | 终止进程
-11 | SIGSEGV   | 指示进程进行了无效内存访问(段错误) | 终止进程并产生core文件
-12 | SIGUSR2   | 另外一个用户自定义信号，程序员可以在程序中定义并使用该信号 | 终止进程
-13 | SIGPIPE   | Broken pipe 向一个没有读端的管道写数据 | 终止进程
-14 | SIGALRM   | 定时器超时，超时的时间由系统调用 `alarm` 设置 | 终止进程
-15 | SIGTERM   | 程序结束信号，与 SIGKILL 不同的是，该信号可以被阻塞和终止。通常用来要示程序正常退出。执行shell命令Kill时，缺省产生这个信号 | 终止进程
-16 | SIGSTKFLT | Linux 早期版本出现的信号，现仍保留向后兼容 | 终止进程
-17 | SIGCHLD   | 子进程结束时(终止、收到 SIGSTOP 停止、处在停止态收到 SIGCONT 唤醒），父进程会收到这个信号 | 忽略这个信号
-18 | SIGCONT   | 如果进程已停止，则使其继续运行 | 继续/忽略
-19 | SIGSTOP   | 停止进程的执行。信号不能被忽略，处理和阻塞 | 为终止进程
-20 | SIGTSTP   | 停止终端交互进程的运行。按下 `ctrl+z` 组合键时发出这个信号 | 暂停进程
-21 | SIGTTIN   | 后台进程读终端控制台 | 暂停进程
-22 | SIGTTOU   | 该信号类似于 SIGTTIN，在后台进程要向终端输出数据时发生 | 暂停进程
-23 | SIGURG    | 套接字上有紧急数据时，向当前正在运行的进程发出些信号，报告有紧急数据到达。如网络带外数据到达 | 忽略该信号
-24 | SIGXCPU   | 进程执行时间超过了分配给该进程的 CPU 时间，系统产生该信号并发送给该进程 | 终止进程
-25 | SIGXFSZ   | 超过文件的最大长度设置 | 终止进程
-26 | SIGVTALRM | 虚拟时钟超时时产生该信号。类似于 SIGALRM，但是该信号只计算该进程占用 CPU 的使用时间 | 终止进程
-27 | SGIPROF   | 类似于 SIGVTALRM，它不仅包括该进程占用 CPU 时间还包括执行系统调用时间 | 终止进程
-28 | SIGWINCH  | 窗口变化大小时发出 忽略该信号
-29 | SIGIO     | 此信号向进程指示发出了一个异步 IO 事件 忽略该信号
-30 | SIGPWR    | 关机 | 终止进程
-31 | SIGSYS    | 无效的系统调用 | 终止进程并产生core文件
-34~64 | SIGRTMIN~SIGRTMAX | LINUX 的实时信号，它们没有固定的含义（可以由用户自定义） | 终止进程
+| 编号  |     信号名称      | 对应事件                                                                                                                   | 默认动作                   |
+| :---: | :---------------: | :------------------------------------------------------------------------------------------------------------------------- | :------------------------- |
+|   1   |      SIGHUP       | 用户退出 shell 时，由该 shell 启动的所有进程将收到这个信号                                                                 | 终止进程                   |
+|   2   |      SIGINT       | 当用户按下了 `Ctrl+C` 组合键时，用户终端向正在运行中的由该终端启动的程序发出此信号                                         | 终止进程                   |
+|   3   |      SIGQUIT      | 用户按下 `Ctrl+\` 组合键时产生该信号，用户终端向正在运行中的由该终端启动的进程发出些信号                                   | 终止进程                   |
+|   4   |      SIGILL       | CPU 检测到某进程执行了非法指令                                                                                             | 终止进程并产生core文件     |
+|   5   |      SIGTRAP      | 该信号由断点指令或其他 `trap` 指令产生                                                                                     | 终止进程并产生core文件     |
+|   6   |      SIGABRT      | 调用 `abort` 函数时产生该信号                                                                                              | 终止进程并产生core文件     |
+|   7   |      SIGBUS       | 非法访问内存地址，包括内存对齐出错                                                                                         | 终止进程并产生core文件     |
+|   8   |      SIGFPE       | 在发生致命的运算错误时发出。不仅包括浮点运算错误，还包括溢出及除数为0等所有的算法错误                                      | 终止进程并产生core文件     |
+|   9   |      SIGKILL      | 无条件终止进程。该信号不能被忽略，处理和阻塞                                                                               | 终止进程，可以杀死任何进程 |
+|  10   |      SIGUSR1      | 用户定义的信号。即程序员可以在程序中定义并使用该信号                                                                       | 终止进程                   |
+|  11   |      SIGSEGV      | 指示进程进行了无效内存访问(段错误)                                                                                         | 终止进程并产生core文件     |
+|  12   |      SIGUSR2      | 另外一个用户自定义信号，程序员可以在程序中定义并使用该信号                                                                 | 终止进程                   |
+|  13   |      SIGPIPE      | Broken pipe 向一个没有读端的管道写数据                                                                                     | 终止进程                   |
+|  14   |      SIGALRM      | 定时器超时，超时的时间由系统调用 `alarm` 设置                                                                              | 终止进程                   |
+|  15   |      SIGTERM      | 程序结束信号，与 SIGKILL 不同的是，该信号可以被阻塞和终止。通常用来要示程序正常退出。执行shell命令Kill时，缺省产生这个信号 | 终止进程                   |
+|  16   |     SIGSTKFLT     | Linux 早期版本出现的信号，现仍保留向后兼容                                                                                 | 终止进程                   |
+|  17   |      SIGCHLD      | 子进程结束时(终止、收到 SIGSTOP 停止、处在停止态收到 SIGCONT 唤醒），父进程会收到这个信号                                  | 忽略这个信号               |
+|  18   |      SIGCONT      | 如果进程已停止，则使其继续运行                                                                                             | 继续/忽略                  |
+|  19   |      SIGSTOP      | 停止进程的执行。信号不能被忽略，处理和阻塞                                                                                 | 为终止进程                 |
+|  20   |      SIGTSTP      | 停止终端交互进程的运行。按下 `ctrl+z` 组合键时发出这个信号                                                                 | 暂停进程                   |
+|  21   |      SIGTTIN      | 后台进程读终端控制台                                                                                                       | 暂停进程                   |
+|  22   |      SIGTTOU      | 该信号类似于 SIGTTIN，在后台进程要向终端输出数据时发生                                                                     | 暂停进程                   |
+|  23   |      SIGURG       | 套接字上有紧急数据时，向当前正在运行的进程发出些信号，报告有紧急数据到达。如网络带外数据到达                               | 忽略该信号                 |
+|  24   |      SIGXCPU      | 进程执行时间超过了分配给该进程的 CPU 时间，系统产生该信号并发送给该进程                                                    | 终止进程                   |
+|  25   |      SIGXFSZ      | 超过文件的最大长度设置                                                                                                     | 终止进程                   |
+|  26   |     SIGVTALRM     | 虚拟时钟超时时产生该信号。类似于 SIGALRM，但是该信号只计算该进程占用 CPU 的使用时间                                        | 终止进程                   |
+|  27   |      SGIPROF      | 类似于 SIGVTALRM，它不仅包括该进程占用 CPU 时间还包括执行系统调用时间                                                      | 终止进程                   |
+|  28   |     SIGWINCH      | 窗口变化大小时发出 忽略该信号                                                                                              |
+|  29   |       SIGIO       | 此信号向进程指示发出了一个异步 IO 事件 忽略该信号                                                                          |
+|  30   |      SIGPWR       | 关机                                                                                                                       | 终止进程                   |
+|  31   |      SIGSYS       | 无效的系统调用                                                                                                             | 终止进程并产生core文件     |
+| 34~64 | SIGRTMIN~SIGRTMAX | LINUX 的实时信号，它们没有固定的含义（可以由用户自定义）                                                                   | 终止进程                   |
 
 ### 4.4.3. 信号的 5 种默认处理动作
 
@@ -1291,9 +1302,214 @@ int main()
 
 ### 4.5.4. 应用示例
 
-## 4.6. 守护进程
+## 4.6. POSIX消息队列
 
-### 4.6.1. 终端
+### 4.6.1. POSIX消息队列概述
+
+```cpp {class=line-numbers}
+mq_open()函数创建一个新消息队列或打开一个既有队列，返回后续调用中会用到的消息队列描述符。
+mq_send()函数向队列写入一条消息。
+mq_receive()函数从队列中读取一条消息。
+mq_close()函数关闭进程之前打开的一个消息队列。
+mq_unlink()函数删除一个消息队列名并当所有进程关闭该队列时对队列进行标记以便删除
+
+mq_notify()函数允许一个进程向一个队列注册接收消息通知。在注册完之后，当一条消息可用时会通过发送一个信号或在一个单独的线程中调用一个函数来通知进程。
+```
+
+### 4.6.2. mq_open()
+
+```cpp {class=line-numbers}
+#include <fcntl.h>    /* For O_* constants */
+#include <sys/stat.h> /* For mode constants */
+#include <mqueue.h>
+
+mqd_t mq_open(const char *name, int oflag);
+mqd_t mq_open(const char *name, int oflag, mode_t mode, struct mq_attr *attr);
+
+struct mq_attr
+{
+  long mq_flags;   /* Flags: 0, or O_NONBLOCK (ignored for mq_open()) */
+  long mq_maxmsg;  /* Max. # of messages on queue */
+  long mq_msgsize; /* Max. message size (bytes) */
+  long mq_curmsgs; /* # of messages currently in queue (ignored for mq_open()) */
+};
+
+/* Link with - lrt. */
+/**
+  * @brief:
+  *  - 函数创建一个新消息队列或打开一个既有队列，返回后续调用中会用到的消息队列描述符
+  *  - Linux 中 POSIX 消息队列描述符被实现为文件描述符
+  * @param: 
+  *  - name：标识消息队列，其命名需以 '/' 开头，且不超过 NAME_MAX(255) 个字符
+  *  - oflag：位掩码
+  *    - O_CREAT：队列不存在时创建队列
+  *    - O_EXCL：与 O_CREAT 一起排他地创建队列
+  *    - O_RDONLY：只读打开
+  *    - O_WRONLY：只写打开
+  *    - O_RDWR：读写打开
+  *    - O_NOBLOCK：非阻塞模式打开
+  *  - mode：位掩码，当创建新队列时需指定相关权限，和创建文件时指定权限类似
+  *  - attr：mq_attr 结构体，指定消息队列的属性，默认属性则设为 NULL
+  * @return:
+  *  - 成功：返回消息队列描述符，Linux 上 mqd_t 是 int，Solaris 上是 void *
+  *  - 失败：-1，并设置 errno
+  **/
+```
+
+### 4.6.3. mq_close()
+
+```cpp {class=line-numbers}
+#include <mqueue.h>
+
+int mq_close(mqd_t mqdes);
+
+/* Link with - lrt. */
+/**
+  * @brief:
+  *  - 关闭已打开的消息队列描述符 mqdes
+  *  - 如果调用进程已经通过 mqdes 在队列上注册了消息通知，那么通知注册会自动被删除，并且另一个进程随后可以向该队列注册消息通知
+  *  - 当进程终止或调用 exec() 时，消息队列描述符会被自动关闭
+  *  - 与文件上的 close()一样，关闭一个消息队列并不会删除该队列，要删除队列则需要使用 mq_unlink()
+  * @param: 
+  *  - mqdes：先前已打开的消息队列描述符
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+```
+
+### 4.6.4. mq_unlink()
+
+```cpp {class=line-numbers}
+ #include <mqueue.h>
+
+int mq_unlink(const char *name);
+
+/* Link with -lrt. */
+/**
+  * @brief:
+  *  - 删除 name 标记的消息队列，并将队列标记为在所有进程使用完该队列之后销毁该队列
+  *  - 可能会立即删除，但前提是所有打开该队列的进程已经关闭了该队列
+  * @param: 
+  *  - name：要删除的消息队列的描述符
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+```
+
+### 4.6.5. mq_send()
+
+```cpp {class=line-numbers}
+#include <time.h>
+#include <mqueue.h>
+
+int mq_send(mqd_t mqdes, const char *msg_ptr, size_t msg_len, unsigned int msg_prio);
+int mq_timedsend(mqd_t mqdes, const char *msg_ptr, size_t msg_len, unsigned int msg_prio, 
+                 const struct timespec *abs_timeout);
+
+/* 将超时时间描述为自新纪元到现在的一个绝对值 */
+struct timespec
+{
+  time_t tv_sec; /* seconds */
+  long tv_nsec;  /* nanoseconds */
+};
+
+/* Link with -lrt. */
+/**
+  * @brief:
+  *  - 将位于 msg_ptr 指向的缓冲区中的消息添加到描述符 mqdes 所引用的消息队列中
+  *  - 当消息队列满时会阻塞直到有可用空间或者在 O_NONBLOCK 情况下立即失败返回 EAGAIN 错误
+  * @param: 
+  *  - mqdes：消息队列描述符
+  *  - msg_ptr：待发送消息所在缓冲区地址
+  *  - msg_len：待发送消息的长度，可以为0，但是必能超过 mq_msgsize，否则返回 EMSGSIZE 错误
+  *  - msg_prio：优先级（0 表示最低优先级），无需优先级则可都设为 0
+  *  - abs_timeout：阻塞情况下可以设置阻塞一定超时时长后仍未成功发送消息则立即返回
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  *    - EAGAIN：非阻塞情况下接收消息失败返回
+  *    - ETIMEDOUT：阻塞情况下超时未发送消息失败返回
+  **/
+```
+
+### 4.6.6. mq_receive()
+
+```cpp {class=line-numbers}
+#include <time.h>
+#include <mqueue.h>
+
+ssize_t mq_receive(mqd_t mqdes, char *msg_ptr, size_t msg_len, unsigned int *msg_prio);
+ssize_t mq_timedreceive(mqd_t mqdes, char *msg_ptr, size_t msg_len, unsigned int *msg_prio,
+                        const struct timespec *abs_timeout);
+
+struct timespec
+{
+  time_t tv_sec; /* seconds */
+  long tv_nsec;  /* nanoseconds */
+};
+
+/* Link with -lrt. */
+/**
+  * @brief:
+  *  - 从 mqdes 引用的消息队列中删除一条优先级最高、存在时间最长的消息，并将删除的消息放置在 msg_ptr 指向的缓冲区
+  *  - 如果消息队列为空，则会阻塞直到存在可用的消息或在 O_NONBLOCK 时立即失败返回 EAGAIN 错误
+  * @param: 
+  *  - mqdes：消息队列描述符
+  *  - msg_ptr：存储接收到的消息的缓冲区的地址
+  *  - msg_len：接收缓冲区的大小，需要大于或等于 mq_msgsize，否则会失败并返回 EMSGSIZE 错误
+  *  - msg_prio：若不为 NULL，则保存消息的优先级
+  *  - abs_timeout：阻塞情况下，可设置阻塞到一定的超时时间后仍无消息可读则立即返回
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  *    - EAGAIN：非阻塞情况下接收消息失败返回
+  *    - ETIMEDOUT：阻塞情况下超时未接收到消息失败返回
+  **/
+
+
+```
+
+### 4.6.6. mq_notify()
+
+```cpp {class=line-numbers}
+/* Link with -lrt. */
+/**
+  * @brief:
+  *  - 
+  * @param: 
+  *  - 
+  *  - 
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+```
+
+### 4.6.6. mq_attr
+
+```cpp {class=line-numbers}
+/* Link with -lrt. */
+/**
+  * @brief:
+  *  - 
+  * @param: 
+  *  - 
+  *  - 
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+```
+
+### 4.6.7. POSIX消息队列限制
+
+### 4.6.8. 应用示例
+
+# 5. 终端、会话和守护进程
+
+## 5.1. 终端
 
 - 在 UNIX 系统中，用户通过终端登录系统后得到一个 shell 进程，这个终端成为 shell 进程的控制终端；
 - 进程中，控制终端是保存在 PCB 中的信息，而 `fork()` 会复制 PCB 中的信息，因此由 shell 进程启动的其它进程的控制终端也是这个终端；
@@ -1301,13 +1517,13 @@ int main()
 - 在控制终端输入一些特殊的控制键可以给前台进程发信号，例如 `Ctrl + C` 会产生 `SIGINT` 信号， `Ctrl + \` 会产生 `SIGQUIT` 信号；
 - `echo $$`：显示当前 shell 进程的进程号；
 
-### 4.6.2. 进程组
+## 5.2. 进程组
 
 - 进程组和会话在进程之间形成了一种两级层次关系：进程组是一组相关进程的集合，会话是一组相关进程组的集合。进程组和会话是为支持 shell 作业控制而定义的抽象概念，用户通过 shell 能够交互式地在前台或后台运行命令；
 - 进行组由一个或多个共享同一进程组标识符（PGID）的进程组成。一个进程组拥有一个进程组首进程，该进程是创建该组的进程，其进程 ID 为该进程组的 ID，新进程会继承其父进程所属的进程组 ID；
 - 进程组拥有一个生命周期，其开始时间为首进程创建组的时刻，结束时间为最后一个成员进程退出组的时刻。一个进程可能会因为终止而退出进程组，也可能会因为加入了另外一个进程组而退出进程组。进程组首进程无需是最后一个离开进程组的成员；
 
-### 4.6.3. 会话
+## 5.3. 会话
 
 - 会话是一组进程组的集合。会话首进程是创建该新会话的进程，其进程 ID 会成为会话 ID。新进程会继承其父进程的会话 ID；
 - 一个会话中的所有进程共享单个控制终端。控制终端会在会话首进程首次打开一个终端设备时被建立。一个终端最多可能会成为一个会话的控制终端；
@@ -1320,7 +1536,7 @@ int main()
   ```
   ![进程组-会话-控制终端间的关系](webserver/note/figure/进程组_会话_控制终端间的关系.PNG)
 
-### 4.6.4. 进程组、会话操作函数
+## 5.4. 进程组、会话操作函数
 
 ```cpp {class=line-numbers}
 #include <sys/types.h>
@@ -1389,7 +1605,7 @@ pid_t getsid(pid_t pid);
 pid_t setsid(void);
 ```
 
-### 4.6.5. 守护进程
+## 5.5. 守护进程
 
 - 守护进程（Daemon Process），也就是通常说的 Daemon 进程（精灵进程），是 Linux 中的后台服务进程。它是一个生存期较长的进程，通常独立于控制终端并且周
 期性地执行某种任务或等待处理某些发生的事件。一般采用以 d 结尾的名字；
@@ -1406,9 +1622,9 @@ pid_t setsid(void);
   - 在关闭了文件描述符 0、 1、 2 之后，守护进程通常会打开 `/dev/null` 并使用 `dup2()` 使所有这些描述符指向这个设备；
   - 核心业务逻辑；
 
-### 4.6.6. 应用示例
+### 5.5.1. 应用示例
 
-#### 4.6.6.1. 每 1s 向磁盘文件打印当前系统时间的守护进程
+#### 5.5.1.1. 每 1s 向磁盘文件打印当前系统时间的守护进程
 
 ```cpp {class=line-numbers}
 #include <stdio.h>
