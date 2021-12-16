@@ -91,6 +91,10 @@
     - [7.5.1. timer_create()](#751-timer_create)
     - [7.5.2. timer_settime()](#752-timer_settime)
     - [7.5.3. timer_delete()](#753-timer_delete)
+    - [7.5.4. 通过信号通知](#754-通过信号通知)
+    - [7.5.5. 通过线程通知](#755-通过线程通知)
+    - [7.5.6. 定时器溢出](#756-定时器溢出)
+  - [7.6. 利用文件描述符进行通知的定时器： timerfd API](#76-利用文件描述符进行通知的定时器-timerfd-api)
 
 # 1. 进程概述
 
@@ -1827,6 +1831,8 @@ clock_t clock(void);
 
 ## 7.1. 间隔定时器
 
+定时器的用途之一是为系统调用的阻塞设定时间上限
+
 ### 7.1.1. setitimer()
 
 ```cpp {class=linenumbers}
@@ -1854,7 +1860,7 @@ struct timeval
   *    - ITIMER_REAL：真实时间，到期发送 SIGALRM
   *    - ITIMER_VIRTUAL：进程的用户态所消耗的 CPU 时间，到期发送 SIGVTALRM
   *    - ITIMER_PROF：进程的用户态和内核态消耗的总的 CPU 时间（包括该进程下的所有线程），到期发送 SIGPROF
-  *    - 一个进程针对 ITIMER_REAL、 ITIMER_VIRTUAL 和 ITIMER_PROF 这 3 类定时器，每种只能设置一个。当第 2 次调用 setitimer()时，修改已有定时器的属性要符合参数 which 中的类型
+  *    - 一个进程针对 ITIMER_REAL、ITIMER_VIRTUAL 和 ITIMER_PROF 这 3 类定时器，每种只能设置一个。当第 2 次调用 setitimer()时，修改已有定时器的属性要符合参数 which 中的类型
   *    - 如果调用 setitimer() 时将 new_value.it_value 的两个字段均置为 0，那么会屏蔽任何已有的定时器
   *  - new_val：设置定时器的属性
   *  - old_value：获取先前定时器的属性
@@ -2158,8 +2164,7 @@ int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *reques
   - 以系统调用 `timer_create()` 创建一个新定时器，并定义其到期时对进程的通知方法。
   - 以系统调用 `timer_settime()` 来启动或停止一个定时器。
   - 以系统调用 `timer_delete()` 删除不再需要的定时器。
-</br>
-
+- 程序可以使用 `timer_create()` 创建多个间隔定时器。在当前实现中，内核会为每个用 `timer_create()` 创建的 POSIX 定时器在队列中预分配一个实时信号结构。之所以要采取预分配，旨在确保当定时器到期时，至少有一个有效结构可服务于所产生的队列化信号。这也意味着可以创建的 POSIX 定时器数量受制于排队实时信号的数量，因此，定时器的数量受 `RLIMIT_SIGPENDING` 资源限制（请参阅 `setrlimit(2)`）。
 - 由 `fork()` 创建的子进程不会继承 POSIX 定时器。 调用 `exec()` 期间亦或进程终止时将停止并删除定时器。
 - Linux 上，调用 POSIX 定时器 API 的程序编译时应使用 `-lrt` 选项，从而与 `librt` 函数库相链接。
 
@@ -2167,11 +2172,43 @@ int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *reques
 ### 7.5.1. timer_create()
 
 ```cpp {class=line-numbers}
+#include <signal.h>
+#include <time.h>
+
+int timer_create(clockid_t clockid, struct sigevent *sevp, timer_t *timerid);
+
+union sigval
+{
+  int sival_int;   /* Integer value */
+  void *sival_ptr; /* Pointer value */
+};
+
+struct sigevent
+{
+  int sigev_notify;                            /* Notification method */
+  int sigev_signo;                             /* Notification signal */
+  union sigval sigev_value;                    /* Data passed with notification */
+  void (*sigev_notify_function)(union sigval); /* Function used for thread notification (SIGEV_THREAD) */
+  void *sigev_notify_attributes;               /* Attributes for notification thread (SIGEV_THREAD) */
+  pid_t sigev_notify_thread_id;                /* ID of thread to signal (SIGEV_THREAD_ID) */
+};
+
 /**
   * @brief:
-  *  - 
+  *  - 创建一个新定时器，并以由 clockid 指定的时钟来进行时间度量
   * @param: 
-  *  - 
+  *  - clockid：
+  *    - CLOCK_REALTIME：可设定的系统级实时时钟
+  *    - CLOCK_MONOTONIC：不可设定的恒定态时钟，。
+  *    - CLOCK_PROCESS_CPUTIME_ID：每进程 CPU 时间的时钟（自 Linux 2.6.12）
+  *    - CLOCK_THREAD_CPUTIME_ID：每线程 CPU 时间的时钟（自 Linux 2.6.12）
+  *  - sevp：具体如上所示
+  *    - sigev_notify：定时器超时后的通知方式
+  *      - SIGEV_NONE：不通知；使用 timer_gettime()监测定时器
+  *      - SIGEV_SIGNAL：发送 sigev_signo 信号给进程
+  *      - SIGEV_THREAD：调用 sigev_notify_function 作为新线程的启动函数
+  *      - SIGEV_THREAD_ID：发送 sigev_signo 信号给 sigev_notify_thread_id 所标识的线程
+  *  - timerid：传出参数，放置定时器句柄（handle），供后续调用中指代该定时器之用
   * @return:
   *  - 成功：0
   *  - 失败：-1，并设置 errno
@@ -2181,11 +2218,49 @@ int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *reques
 ### 7.5.2. timer_settime()
 
 ```cpp {class=line-numbers}
+#include <time.h>
+
+int timer_settime(timer_t timerid, int flags, const struct itimerspec *new_value,
+                  struct itimerspec *old_value);
+struct timespec
+{
+  time_t tv_sec; /* Seconds */
+  long tv_nsec;  /* Nanoseconds */
+};
+
+struct itimerspec
+{
+  struct timespec it_interval; /* Timer interval */
+  struct timespec it_value;    /* Initial expiration */
+};
+
 /**
   * @brief:
-  *  - 
+  *  - 配备（启动）或解除（停止）定时器
+  *  - 为了启动定时器，需要调用函数 timer_settime()，并将 value.it_value 的一个或全部下属字段设为非 0 值
+  *  - 如果之前曾经配备过定时器 timer_settime() 会将之前的设置替换掉
+  *  - 如果要解除定时器，需要调用 timer_settime() 将 value.it_value 的所有字段指定为 0
+  *  - 如果定时器的值和间隔时间并非对应时钟分辨率（由 clock_getres() 返回）的整数倍，那么会对这些值做向上取整处理
   * @param: 
-  *  - 
+  *  - timerid：定时器句柄（handle），由之前对 timer_create() 的调用获得
+  *  - flags：
+  *    - 0：value.it_value 是始于 timer_settime()（与 setitimer() 类似）调用时间点的相对值
+  *    - TIMER_ABSTIME：value.it_value 是一个绝对时间（从时钟值 0 开始）。一旦时钟过了这一时间，定时器会立即到期
+  *  - new_value：设置定时器的周期和初始超时时长
+  *  - old_value：获取上一次定时器的超时属性
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+
+int timer_gettime(timer_t timerid, struct itimerspec *curr_value);
+/**
+  * @brief:
+  *  - 获取由 timerid 指定 POSIX 定时器的间隔以及剩余时间
+  *  - 如果返回结构 curr_value.it_value 的两个字段均为 0，那么定时器当前处于停止状态
+  *  - 如果返回结构 curr_value.it_interval 的两个字段都是 0，那么该定时器仅在 curr_value.it_value 给定的时间到期过一次
+  * @param: 
+  *  - curr_value：存储由 timerid 指定 POSIX 定时器的间隔以及剩余时间
   * @return:
   *  - 成功：0
   *  - 失败：-1，并设置 errno
@@ -2195,13 +2270,69 @@ int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *reques
 ### 7.5.3. timer_delete()
 
 ```cpp {class=line-numbers}
+#include <time.h>
+
+int timer_delete(timer_t timerid);
+/**
+  * @brief:
+  *  - 每个 POSIX 定时器都会消耗少量系统资源。所以，一旦使用完毕，应当用 timer_delete() 来移除定时器并释放这些资源
+  *  - 对于已启动的定时器，会在移除前自动将其停止
+  *  - 如果因定时器到期而已经存在待定（pending）信号，那么信号会保持这一状态。（SUSv3 对此并未加以规范，所以其他的一些 UNIX 实现可能会有不同行为）
+  *  - 当进程终止时，会自动删除所有定时器
+  * @param: 
+  *  - timerid：之前调用 timer_create() 时返回的句柄
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+```
+
+### 7.5.4. 通过信号通知
+
+### 7.5.5. 通过线程通知
+
+### 7.5.6. 定时器溢出
+
+通过信号通知和通过线程通知都可能产生定时器溢出的问题
+
+```cpp {class=line-numbers}
+#include <time.h>
+
+int timer_getoverrun(timer_t timerid);
 /**
   * @brief:
   *  - 
   * @param: 
   *  - 
   * @return:
-  *  - 成功：0
-  *  - 失败：-1，并设置 errno
+  *  - 成功：
+  *  - 失败：
+  **/
+```
+
+## 7.6. 利用文件描述符进行通知的定时器： timerfd API
+
+始于版本 2.6.25， Linux 内核提供了另一种创建定时器的 API。 Linux 特有的 timerfd API，可从文件描述符中读取其所创建定时器的到期通知。因此可以使用 `select()`、 `poll()` 和 `epoll()` 将这种文件描述符会同其他描述符一同进行监控，所以非常实用。
+
+```cpp {class=line-numbers}
+#include <sys/timerfd.h>
+
+int timerfd_create(int clockid, int flags);
+
+int timerfd_settime(int fd, int flags, const struct itimerspec *new_value,
+                    struct itimerspec *old_value);
+
+int timerfd_gettime(int fd, struct itimerspec *curr_value);
+```
+
+```cpp {class=line-numbers}
+/**
+  * @brief:
+  *  - 
+  * @param: 
+  *  - 
+  * @return:
+  *  - 成功：
+  *  - 失败：
   **/
 ```
