@@ -60,10 +60,10 @@
     - [4.6.4. mq_unlink()](#464-mq_unlink)
     - [4.6.5. mq_send()](#465-mq_send)
     - [4.6.6. mq_receive()](#466-mq_receive)
-    - [4.6.6. mq_notify()](#466-mq_notify)
-    - [4.6.6. mq_attr](#466-mq_attr)
-    - [4.6.7. POSIX消息队列限制](#467-posix消息队列限制)
-    - [4.6.8. 应用示例](#468-应用示例)
+    - [4.6.7. mq_notify()](#467-mq_notify)
+    - [4.6.8. mq_attr](#468-mq_attr)
+    - [4.6.9. POSIX消息队列限制](#469-posix消息队列限制)
+    - [4.6.10. 应用示例](#4610-应用示例)
 - [5. 终端、会话和守护进程](#5-终端会话和守护进程)
   - [5.1. 终端](#51-终端)
   - [5.2. 进程组](#52-进程组)
@@ -72,6 +72,17 @@
   - [5.5. 守护进程](#55-守护进程)
     - [5.5.1. 应用示例](#551-应用示例)
       - [5.5.1.1. 每 1s 向磁盘文件打印当前系统时间的守护进程](#5511-每-1s-向磁盘文件打印当前系统时间的守护进程)
+- [6. 时间](#6-时间)
+  - [6.1. 日历时间和时间转换函数](#61-日历时间和时间转换函数)
+  - [6.2. 软件时钟（jiffies）](#62-软件时钟jiffies)
+  - [6.3. 进程时间](#63-进程时间)
+    - [6.3.1. times()](#631-times)
+    - [6.3.2. clock()](#632-clock)
+- [7. 定时器和休眠](#7-定时器和休眠)
+  - [7.1. 间隔定时器](#71-间隔定时器)
+    - [7.1.1. setitimer()](#711-setitimer)
+    - [7.1.2. alarm()](#712-alarm)
+  - [7.2. 定时器的调度和精度](#72-定时器的调度和精度)
 
 # 1. 进程概述
 
@@ -84,6 +95,8 @@
 # 2. Linux 进程相关命令
 
 ## 2.1. ps
+
+查看进程的 status 文件： cat /proc/pid/status
 
 ## 2.2. top
 
@@ -835,58 +848,6 @@ void abort(void);
   * @return:
   *  - void
   **/
-
-#include <unistd.h>
-unsigned int alarm(unsigned int seconds);
-/**
-  * @brief:
-  *  - 在定时指定秒数后向调用进程发送 SIGALRM 信号，默认会终止调用进程
-  *  - 可以捕捉该信号并执行特定的定时任务，从而实现定时器的功能
-  *  - 每个进程只能由一个 alarm 定时器，且 alarm 计时与进程的状态无关（自然定时法） 
-  * @param: 
-  *  - unsigned int seconds：定时的秒数，当为 0 时，不执行任何动作或者取消原来设置的定时器
-  * @return:
-  *  - 如果先前没有设置定时器，则返回 0；否则返回先前定时器剩余的秒数
-  **/
-
-#include <sys/time.h>
-int setitimer(int which, const struct itimerval *new_val, struct itimerval *old_value);
-/**
-  * @brief:
-  *  - 在延迟指定时间后向调用进程发送指定信号，之后按照指定间隔周期性地发送指定信号
-  *  - 可以作为周期性的定时器，定时精度为微妙
-  * @param: 
-  *  - int which：设置定时器以何种时间标准进行定时
-  *    - ITIMER_REAL：真实时间，到期发送 SIGALRM
-  *    - ITIMER_VIRTUAL：进程的用户态所消耗的 CPU 时间，到期发送 SIGVTALRM
-  *    - ITIMER_PROF：进程的用户态和内核态消耗的总的 CPU 时间（包括该进程下的所有线程），到期发送 SIGPROF
-  *    - 一个进程只能拥有以上三种类型定时器中的一种
-  *  - const struct itimerval *new_val：设置定时器的属性
-       struct itimerval
-       {
-         struct timeval it_interval; // 定时周期，若为 0，则为非周期定时器
-         struct timeval it_value;    // 定时器超时时间，首次超时后被重置为 it_interval；若为 0，则关闭定时器
-       };
-       struct timeval
-       {
-         time_t tv_sec;       //  秒数
-         suseconds_t tv_usec; //  微秒
-       };
-  *  - struct itimerval *old_value：获取先前定时器的属性
-  * @return:
-  *  - 成功：0
-  *  - 失败：-1，并设置错误号
-  **/
-
-int getitimer(int which, struct itimerval *curr_value);
-/**
-  * @brief:
-  *  - 获取定时器的属性
-  * @param: 
-  * @return:
-  *  - 成功：0
-  *  - 失败：-1，并设置 errno
-  **/
 ```
 
 ### 4.4.5. 信号捕捉函数
@@ -1469,7 +1430,7 @@ struct timespec
   **/
 ```
 
-### 4.6.6. mq_notify()
+### 4.6.7. mq_notify()
 
 ```cpp {class=line-numbers}
 #include <mqueue.h>
@@ -1511,7 +1472,7 @@ union sigval
   **/
 ```
 
-### 4.6.6. mq_attr
+### 4.6.8. mq_attr
 
 ```cpp {class=line-numbers}
 #include <mqueue.h>
@@ -1539,7 +1500,7 @@ struct mq_attr
   **/
 ```
 
-### 4.6.7. POSIX消息队列限制
+### 4.6.9. POSIX消息队列限制
 
 - **MQ_PRIO_MAX：** 
 - **MQ_OPEN_MAX：** 指明一个进程最多能打开的消息队列数量。 SUSv3 要求这个限制最小为 _POSIX_MQ_OPEN_MAX（8）。 Linux 并没有定义这个限制，相反，由于 Linux 将消息队列描述符实现成了文件描述符，因此适用于文件描述符的限制将适用于消息队列描述符
@@ -1549,7 +1510,7 @@ struct mq_attr
 
 - Linux 还提供了一些/proc 文件来查看和修改（需具备特权）控制 POSIX 消息队列的使用的限制。下面这三个文件位于 /proc/sys/fs/mqueue 目录中（`man 7 mq_overview`）
 
-### 4.6.8. 应用示例
+### 4.6.10. 应用示例
 
 # 5. 终端、会话和守护进程
 
@@ -1744,4 +1705,202 @@ int main()
 
   return 0;
 }
+```
+
+# 6. 时间
+
+## 6.1. 日历时间和时间转换函数
+
+- 真实时间：对应于时间定义的每一天
+- 日历时间：当真实时间通过一些标准点计算的时候，我们称它为日历时间
+- 和经过的时间相对，它是度量一个进程生命周期中的一些点（通常是开始）
+- 进程时间是由一个进程使用的 CPU 时间量，并划分为用户时间和系统时间
+
+```cpp {class=linenumbers}
+#include <time.h>
+
+char *asctime(const struct tm *tm);
+char *asctime_r(const struct tm *tm, char *buf);
+
+char *ctime(const time_t *timep);
+char *ctime_r(const time_t *timep, char *buf);
+
+struct tm *gmtime(const time_t *timep);
+struct tm *gmtime_r(const time_t *timep, struct tm *result);
+
+struct tm *localtime(const time_t *timep);
+struct tm *localtime_r(const time_t *timep, struct tm *result);
+
+time_t mktime(struct tm *tm);
+
+struct tm
+{
+  int tm_sec;   /* Seconds (0-60) */
+  int tm_min;   /* Minutes (0-59) */
+  int tm_hour;  /* Hours (0-23) */
+  int tm_mday;  /* Day of the month (1-31) */
+  int tm_mon;   /* Month (0-11) */
+  int tm_year;  /* Year - 1900 */
+  int tm_wday;  /* Day of the week (0-6, Sunday = 0) */
+  int tm_yday;  /* Day in the year (0-365, 1 Jan = 0) */
+  int tm_isdst; /* Daylight saving time */
+};
+
+/**
+  * @brief:
+  * @param: 
+  * @return:
+  **/
+```
+
+## 6.2. 软件时钟（jiffies）
+
+- 系统软件时钟（software clock）的分辨率的度量单位被称为 jiffies。
+- jiffies 的大小是定义在内核源代码的常量 HZ。这是内核按照 round-robin 的分时调度算法分配 CPU 进程的单位。
+- 软件时钟频率是一个可配置的内核的选项（包括处理器类型和特性，定时器的频率）。
+- 自 2.6.13 内核，时钟频率可以设置到 100、250（默认）或 1000 赫兹，对应的 jiffy 值分别为 10、 4、 1 毫秒。
+- 自内核 2.6.20，增加了一个频率： 300 赫兹，它可以被两种常见的视频帧速率 25 帧每秒（PAL）和 30 帧每秒（ NTSC）整除。
+
+## 6.3. 进程时间
+
+- 进程时间是进程创建后使用的 CPU 时间数量，内核把 CPU 时间分成以下两个部分：
+  - 用户 CPU 时间：进程在用户态下执行所花费的时间数量，也称为虚拟时间（virtual time）。对于程序来说，就是它已经得到 CPU 的时间。
+  - 系统 CPU 时间：进程在内核态下执行所花费的时间数量，这是内核用于执行系统调用或代表程序执行的其他任务（例如，服务页错误）的时间。
+- 当运行一个 shell 程序， 我们可以使用的 `time process_name` 命令， 同时获得这两个部分的时间值，以及运行程序所需的实际时间
+
+### 6.3.1. times()
+
+```cpp {class=linenumbers}
+#include <sys/times.h>
+
+clock_t times(struct tms *buf);
+
+struct tms
+{
+  clock_t tms_utime;  /* user time */
+  clock_t tms_stime;  /* system time */
+  clock_t tms_cutime; /* user time of children */
+  clock_t tms_cstime; /* system time of children */
+};
+
+/**
+  * @brief:
+  *  - 检索进程时间信息，并把结果通过 buf 指向的结构体返回
+  *  - tms_utime, tms_stime 返回调用进程到目前为止使用的用户和系统组件的 CPU 时间
+  *  - tms_cutime, tms_cstime 返回父进程（比如，times()的调用者）执行了系统调用 wait() 的所有已经终止的子进程使用的 CPU 时间
+  *  - 可以使用 sysconf(_SC_CLK_TCK) 获得每秒包含的 clock ticks 数目
+  * @param: 
+  *  - buf：存储检索的进程时间信息结果
+  * @return:
+  *  - 成功：
+  *    - 返回自过去某个时间点（取决于具体实现）到当前时刻所经过的 clock ticks 数目
+  *    - 返回值可能会产生溢出，所以采用一对 times() 调用做差可能会得到错误的结果
+  *  - 失败：(clock_t) -1，并设置 errno
+  **/
+```
+
+### 6.3.2. clock()
+
+```cpp {class=linenumbers}
+#include <time.h>
+
+clock_t clock(void);
+/**
+  * @brief:
+  *  - 返回调用进程到当前调用时刻所经过的 CPU 时间
+  * @param: 
+  * @return:
+  *  - 成功：返回调用进程到当前时刻所经过的 clock ticks 数目，可以除以 CLOCKS_PERSEC 获得秒数
+  *  - 失败：(clock_t) -1
+  **/
+```
+
+# 7. 定时器和休眠
+
+## 7.1. 间隔定时器
+
+### 7.1.1. setitimer()
+
+```cpp {class=linenumbers}
+#include <sys/time.h>
+int setitimer(int which, const struct itimerval *new_val, struct itimerval *old_value);
+
+struct itimerval
+{
+  struct timeval it_interval; /* 定时周期，若为 0，则为非周期定时器 */
+  struct timeval it_value;    /* 定时器超时时间，首次超时后被重置为 it_interval；若为 0，则关闭定时器 */
+};
+struct timeval
+{
+  time_t tv_sec;       /* 秒数 */
+  suseconds_t tv_usec; /* 微秒 */
+};
+
+/**
+  * @brief:
+  *  - 在延迟指定时间后向调用进程发送指定信号，之后按照指定间隔周期性地发送指定信号
+  *  - 对信号的默认处置会终止进程，若想作为定时器使用，则需要对信号创建信号处理函数
+  *  - 使用 setitimer()和 alarm() 创建的定时器可以跨越 exec() 调用而得以保存，但由 fork() 创建的子进程并不继承该定时器
+  * @param: 
+  *  - which：设置定时器以何种时间标准进行定时
+  *    - ITIMER_REAL：真实时间，到期发送 SIGALRM
+  *    - ITIMER_VIRTUAL：进程的用户态所消耗的 CPU 时间，到期发送 SIGVTALRM
+  *    - ITIMER_PROF：进程的用户态和内核态消耗的总的 CPU 时间（包括该进程下的所有线程），到期发送 SIGPROF
+  *    - 一个进程只能拥有以上三种类型定时器中的一种，当第 2 次调用 setitimer()时，修改已有定时器的属性要符合参数 which 中的类型
+  *    - 如果调用 setitimer() 时将 new_value.it_value 的两个字段均置为 0，那么会屏蔽任何已有的定时器
+  *  - new_val：设置定时器的属性
+  *  - old_value：获取先前定时器的属性
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置错误号
+  **/
+
+int getitimer(int which, struct itimerval *curr_value);
+/**
+  * @brief:
+  *  - 获取定时器的当前状态
+  * @param: 
+  *  - which
+  *  - curr_value：
+  *    - 子结构 curr_value.it_value 返回距离下一次到期所剩余的总时间，该值会随定时器倒计时而变化。如果设置定时器时将 it_interval 置为非 0 值，那么会在定时器到期时将其重置
+  *    - 子结构 curr_value.it_interval 返回定时器的间隔时间，除非再次调用 setitimer()，否则该值一直保持不变
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+```
+
+### 7.1.2. alarm()
+
+``` cpp {class=line-numbers}
+#include <unistd.h>
+unsigned int alarm(unsigned int seconds);
+/**
+  * @brief:
+  *  - 在定时指定秒数后向调用进程发送 SIGALRM 信号，默认会终止调用进程
+  *  - 可以捕捉该信号并执行特定的定时任务，从而实现定时器的功能
+  *  - 每个进程只能由一个 alarm 定时器，且 alarm 计时与进程的状态无关（自然定时法，真实时间） 
+  * @param: 
+  *  - seconds：定时的秒数，当为 0 时，不执行任何动作或者取消原来设置的定时器
+  * @return:
+  *  - 如果先前没有设置定时器，则返回 0；否则返回先前定时器剩余的秒数
+  **/
+```
+
+## 7.2. 定时器的调度和精度
+
+取决于当前负载和对进程的调度，系统可能会在定时器到期的瞬间（通常是几分之一秒）之后才去调度其所属进程。尽管如此，由 `setitimer()` 或本章后续介绍的其他接口所创建的周期性定时器，在到期后依然会恪守其规律性。例如，假设设置一个实时定时器每两秒到期一次，虽然上述延迟可能会影响每个定时器事件的送达，但系统对后续定时器到期的调度依然会严格遵循两秒的时间间隔。换言之，间隔式定时器不受潜在错误左右。
+
+虽然 setitimer()使用的 timeval 结构提供有微秒级精度，但是传统意义上定时器精度还是受制于软件时钟频率。如果定时器值未能与软件时钟间隔的倍数严格匹配，那么定时器值则会向上取整。也就是说，假如有一个间隔为 19100 微秒（刚刚超过 19 毫秒）的定时器，如果 jiffy（软件时钟周期）为 4 毫秒，那么定时器实际上会每隔 20 毫秒过期一次
+
+``` cpp {class=line-numbers}
+/**
+  * @brief:
+  *  - 
+  * @param: 
+  *  - 
+  * @return:
+  *  - 成功：
+  *  - 失败：
+  **/
 ```
