@@ -87,7 +87,10 @@
     - [7.3.1. sleep()](#731-sleep)
     - [7.3.2. nanosleep()](#732-nanosleep)
   - [7.4. POSIX 时钟](#74-posix-时钟)
-  - [POSIX 间隔定时器](#posix-间隔定时器)
+  - [7.5. POSIX 间隔定时器](#75-posix-间隔定时器)
+    - [7.5.1. timer_create()](#751-timer_create)
+    - [7.5.2. timer_settime()](#752-timer_settime)
+    - [7.5.3. timer_delete()](#753-timer_delete)
 
 # 1. 进程概述
 
@@ -1851,7 +1854,7 @@ struct timeval
   *    - ITIMER_REAL：真实时间，到期发送 SIGALRM
   *    - ITIMER_VIRTUAL：进程的用户态所消耗的 CPU 时间，到期发送 SIGVTALRM
   *    - ITIMER_PROF：进程的用户态和内核态消耗的总的 CPU 时间（包括该进程下的所有线程），到期发送 SIGPROF
-  *    - 一个进程只能拥有以上三种类型定时器中的一种，当第 2 次调用 setitimer()时，修改已有定时器的属性要符合参数 which 中的类型
+  *    - 一个进程针对 ITIMER_REAL、 ITIMER_VIRTUAL 和 ITIMER_PROF 这 3 类定时器，每种只能设置一个。当第 2 次调用 setitimer()时，修改已有定时器的属性要符合参数 which 中的类型
   *    - 如果调用 setitimer() 时将 new_value.it_value 的两个字段均置为 0，那么会屏蔽任何已有的定时器
   *  - new_val：设置定时器的属性
   *  - old_value：获取先前定时器的属性
@@ -1873,6 +1876,75 @@ int getitimer(int which, struct itimerval *curr_value);
   *  - 成功：0
   *  - 失败：-1，并设置 errno
   **/
+
+/* 简单示例 */
+#include <stdio.h>
+#include <string.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <sys/time.h>
+#include <unistd.h>
+#include <signal.h>
+
+void sig_handle(int signum)
+{
+  printf("catch signal num: %d\n", signum);
+
+  return;
+}
+
+int main()
+{
+  printf("main start\n");
+
+  /* 设置定时器 */
+  struct itimerval itv;
+  itv.it_interval.tv_sec = 0;
+  itv.it_interval.tv_usec = 0;
+  itv.it_value.tv_sec = 0;
+  itv.it_value.tv_usec = 1000;
+  setitimer(ITIMER_REAL, &itv, NULL);
+  setitimer(ITIMER_VIRTUAL, &itv, NULL);
+  setitimer(ITIMER_PROF, &itv, NULL);
+
+  /* 信号捕捉 */
+  struct sigaction sigact;
+  sigemptyset(&sigact.sa_mask);
+  sigact.sa_flags = 0;
+  sigact.sa_handler = sig_handle;
+  sigaction(SIGALRM, &sigact, NULL);
+
+  sigemptyset(&sigact.sa_mask);
+  sigact.sa_flags = 0;
+  sigact.sa_handler = sig_handle;
+  sigaction(SIGVTALRM, &sigact, NULL);
+
+  sigemptyset(&sigact.sa_mask);
+  sigact.sa_flags = 0;
+  sigact.sa_handler = sig_handle;
+  sigaction(SIGPROF, &sigact, NULL);
+
+  while (1)
+  {
+    /* 获取定时器的当前剩余时间 */
+    // struct itimerval cur_itv;
+    // getitimer(ITIMER_REAL, &cur_itv);
+    // printf("ITIMER_REAL: %ld, %ld\n", cur_itv.it_value.tv_sec, cur_itv.it_value.tv_usec);
+
+    // getitimer(ITIMER_VIRTUAL, &cur_itv);
+    // printf("ITIMER_VIRTUAL: %ld, %ld\n", cur_itv.it_value.tv_sec, cur_itv.it_value.tv_usec);
+
+    // getitimer(ITIMER_PROF, &cur_itv);
+    // printf("ITIMER_PROF: %ld, %ld\n", cur_itv.it_value.tv_sec, cur_itv.it_value.tv_usec);
+
+    /* sleep(1); */
+  }
+
+  printf("main end\n");
+
+  return 0;
+}
 ```
 
 ### 7.1.2. alarm()
@@ -2060,18 +2132,6 @@ int pthread_getcpuclockid(pthread_t thread, clockid_t *clock_id);
 ```
 
 ```cpp {class=line-numbers}
-/**
-  * @brief:
-  *  - 
-  * @param: 
-  *  - 
-  * @return:
-  *  - 成功：0
-  *  - 失败：-1，并设置 errno
-  **/
-```
-
-```cpp {class=line-numbers}
 int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *request,
                     struct timespec *remain);
 /**
@@ -2103,6 +2163,36 @@ int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *reques
 - 由 `fork()` 创建的子进程不会继承 POSIX 定时器。 调用 `exec()` 期间亦或进程终止时将停止并删除定时器。
 - Linux 上，调用 POSIX 定时器 API 的程序编译时应使用 `-lrt` 选项，从而与 `librt` 函数库相链接。
 
+
+### 7.5.1. timer_create()
+
+```cpp {class=line-numbers}
+/**
+  * @brief:
+  *  - 
+  * @param: 
+  *  - 
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+```
+
+### 7.5.2. timer_settime()
+
+```cpp {class=line-numbers}
+/**
+  * @brief:
+  *  - 
+  * @param: 
+  *  - 
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+```
+
+### 7.5.3. timer_delete()
 
 ```cpp {class=line-numbers}
 /**
