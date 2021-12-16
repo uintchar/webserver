@@ -84,6 +84,10 @@
     - [7.1.2. alarm()](#712-alarm)
   - [7.2. 定时器的调度和精度](#72-定时器的调度和精度)
   - [7.3. 休眠进程](#73-休眠进程)
+    - [7.3.1. sleep()](#731-sleep)
+    - [7.3.2. nanosleep()](#732-nanosleep)
+  - [7.4. POSIX 时钟](#74-posix-时钟)
+  - [POSIX 间隔定时器](#posix-间隔定时器)
 
 # 1. 进程概述
 
@@ -1900,7 +1904,176 @@ unsigned int alarm(unsigned int seconds);
 
 ## 7.3. 休眠进程
 
+### 7.3.1. sleep()
+
 ``` cpp {class=line-numbers}
+#include <unistd.h>
+
+unsigned int sleep(unsigned int seconds);
+/**
+  * @brief:
+  *  - 将调用进程休眠 seconds 秒，或者在捕获到信号（从而中断调用）后恢复进程的运行
+  *  - 由于系统负载的原因，内核可能会在完成 sleep() 的一段（通常很短）时间后才对进程重新加以调度
+  *  - 一些老系统，会使用 alarm() 以及 SIGALRM 信号处理器函数来实现 sleep()，考虑到可移植性，应避免将 sleep() 和 alarm() 以及 setitimer() 混用
+  * @param: 
+  *  - seconds：指定让进程休眠的秒数
+  * @return:
+  *  - 如果休眠正常结束，返回 0；
+  *  - 如果因为信号而中断休眠，返回剩余未休眠的秒数
+  **/
+```
+
+### 7.3.2. nanosleep()
+
+```cpp {class=line-numbers}
+ #include <time.h>
+
+int nanosleep(const struct timespec *rqtp, struct timespec *rmtp);
+
+struct timespec
+{
+  time_t tv_sec; /* 秒数 */
+  long tv_nsec;  /* 纳秒数 */
+};
+
+/**
+  * @brief:
+  *  - 功能类似 sleep()，可以以更高的分辨率来设定休眠时长
+  *  - SUSv3 明文规定不得使用信号来实现该函数。这意味着，与 sleep() 不同，即使将 nanosleep() 与 alarm() 或 setitimer() 混用，也不会危及程序的可移植性
+  *  - 虽然 nanosleep() 允许设定纳秒级精度的休眠间隔值，但其精度依然受制于软件时钟的间隔大小。如果指定的间隔值并非软件时钟间隔的整数倍，那么会对其向上取整
+  *  - 支持高精度定时器的系统中，休眠时间间隔的精度要比软件时钟间隔精细许多
+  * @param: 
+  *  - rqtp：指定让进程休眠的时间
+  *  - rmtp：传出参数，返回剩余的休眠时间，可利用这一返回值重启该系统调用以完成休眠
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+```
+
+## 7.4. POSIX 时钟
+
+POSIX 时钟（原定义于 POSIX.1b）所提供的时钟访问 API 可以支持纳秒级的时间精度，其中表示纳秒级时间值的 `timespec` 结构同样也用于 `nanosleep()` 调用。
+Linux 中，调用此 API 的程序必须以 `-lrt` 选项进行编译，从而与 librt（realtime）函数库相链接。
+
+POSIX 时钟 API 的主要系统调用包括获取时钟当前值的 `clock_gettime()`、 返回时钟分辨率的 `clock_getres()`，以及更新时钟的 `clock_settime()`。
+
+POSIX.1b 时钟类型如下所示：
+
+| 时钟ID                   | 描述                                     |
+| :----------------------- | :--------------------------------------- |
+| CLOCK_REALTIME           | 可设定的系统级实时时钟，用于度量真实时间   |
+| CLOCK_MONOTONIC          | 不可设定的恒定态时钟，对时间的度量始于“未予规范的过去某一时点”， 系统启动后就不会发生改变。 该时钟适用于那些无法容忍系统时钟发生跳跃性变化（例如：手工改变了系统时间）的应用程序。 Linux 上，这种时钟对时间的测量始于系统启动 |
+| CLOCK_PROCESS_CPUTIME_ID（自 Linux 2.6.12）| 每进程 CPU 时间的时钟，测量调用进程所消耗的用户和系统 CPU 时间 |
+| CLOCK_THREAD_CPUTIME_ID（自 Linux 2.6.12） | 每线程 CPU 时间的时钟，测量调用线程所消耗的用户和系统 CPU 时间 |
+| CLOCK_MONOTONIC_RAW（自 Linux 2.6.28） | 类似于 CLOCK_MONOTONIC，这也是一种无法设置的时钟，但是提供了对纯基于硬件时间的访问，且不受 NTP 时间调整的影响。这种非标准时钟适用于专业时钟同步应用程序 |
+
+```cpp {class=line-numbers}
+int clock_gettime(clockid_t clk_id, struct timespec *tp);
+/**
+  * @brief:
+  *  - 针对参数 clockid 所指定的时钟返回时间
+  * @param: 
+  *  - clk_id：
+  *    - CLOCK_REALTIME：可设定的系统级实时时钟
+  *    - CLOCK_MONOTONIC：不可设定的恒定态时钟，。
+  *    - CLOCK_PROCESS_CPUTIME_ID：每进程 CPU 时间的时钟（自 Linux 2.6.12）
+  *    - CLOCK_THREAD_CPUTIME_ID：每线程 CPU 时间的时钟（自 Linux 2.6.12）
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+```
+
+
+```cpp {class=line-numbers}
+#include <time.h>
+
+int clock_getres(clockid_t clk_id, struct timespec *res);
+/**
+  * @brief:
+  *  - 获得由 clockid 所指定时钟的分辨率
+  * @param: 
+  *  - clk_id：
+  *    - CLOCK_REALTIME：可设定的系统级实时时钟
+  *    - CLOCK_MONOTONIC：不可设定的恒定态时钟
+  *    - CLOCK_PROCESS_CPUTIME_ID：每进程 CPU 时间的时钟（自 Linux 2.6.12）
+  *    - CLOCK_THREAD_CPUTIME_ID：每线程 CPU 时间的时钟（自 Linux 2.6.12）
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+```
+
+```cpp {class=line-numbers}
+int clock_settime(clockid_t clk_id, const struct timespec *tp);
+/**
+  * @brief:
+  *  - 利用参数 tp 所指向缓冲区中的时间来设置由 clockid 指定的时钟
+  *  - 特权级（CAP_SYS_TIME）进程可以设置 CLOCK_REALTIME 时钟。该时钟的初始值通常是自 Epoch（1970-01-01 00:00:00）以来的时间
+  * @param: 
+  *  - clk_id：时钟类型
+  *  - tp：要设定的值
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+```
+
+```cpp {class=line-numbers}
+#include <time.h>
+
+int clock_getcpuclockid(pid_t pid, clockid_t *clock_id);
+/**
+  * @brief:
+  *  - 获取特定进程的时钟 ID
+  *  - 如果要测量特定进程所消耗的 CPU 时间，则
+  *    - 首先获取时钟 ID
+  *    - 然后以此返回 ID 去调用 clock_gettime()，从而获得进程耗费的 CPU 时间
+  * @param: 
+  *  - pid：进程 ID，若为 0 表示当前调用进程
+  *  - clock_id：传出参数，存储隶属于 pid 进程的 CPU 时间时钟的标识符
+  * @return:
+  *  - 成功：0
+  *  - 失败：大于 0 的错误号
+  **/
+```
+
+```cpp {class=line-numbers}
+#include <pthread.h>
+#include <time.h>
+
+int pthread_getcpuclockid(pthread_t thread, clockid_t *clock_id);
+/**
+  * @brief:
+  *  - 获取特定线程的时钟 ID
+  *  - 如果要测量特定线程所消耗的 CPU 时间，则
+  *    - 首先获取时钟 ID
+  *    - 然后以此返回 ID 去调用 clock_gettime()，从而获得线程耗费的 CPU 时间。
+  * @param: 
+  *  - thread：线程 ID，若为 0 表示当前调用线程
+  *  - clock_id：传出参数，存储隶属于 thread 线程的 CPU 时间时钟的标识符
+  * @return:
+  *  - 成功：0
+  *  - 失败：大于 0 错误号
+  **/
+```
+
+```cpp {class=line-numbers}
+/**
+  * @brief:
+  *  - 
+  * @param: 
+  *  - 
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+```
+
+```cpp {class=line-numbers}
+int clock_nanosleep(clockid_t clock_id, int flags, const struct timespec *request,
+                    struct timespec *remain);
 /**
   * @brief:
   *  - 
@@ -1909,5 +2082,36 @@ unsigned int alarm(unsigned int seconds);
   * @return:
   *  - 成功：
   *  - 失败：
+  **/
+```
+
+## 7.5. POSIX 间隔定时器
+
+- 使用 `setitimer()` 来设置经典 UNIX 间隔式定时器，会受到如下制约：
+  - 针对 ITIMER_REAL、 ITIMER_VIRTUAL 和 ITIMER_PROF 这 3 类定时器，每种只能设置一个。
+  - 只能通过发送信号的方式来通知定时器到期。另外，也不能改变到期时产生的信号。
+  - 如果一个间隔式定时器到期多次，且相应信号遭到阻塞时，那么会只调用一次信号处理器函数。换言之，无从知晓是否出现过定时器溢出（timer overrun）的情况。
+  - 定时器的分辨率只能达到微秒级。不过，一些系统的硬件时钟提供了更为精细的时钟分辨率，软件此时应采用这一较高分辨率。
+</br>
+
+- POSIX.1b 定义了一套 API 来突破这些限制，Linux 2.6 实现了这一 API。POSIX 定时器 API 将定时器生命周期划分为如下几个阶段：
+  - 以系统调用 `timer_create()` 创建一个新定时器，并定义其到期时对进程的通知方法。
+  - 以系统调用 `timer_settime()` 来启动或停止一个定时器。
+  - 以系统调用 `timer_delete()` 删除不再需要的定时器。
+</br>
+
+- 由 `fork()` 创建的子进程不会继承 POSIX 定时器。 调用 `exec()` 期间亦或进程终止时将停止并删除定时器。
+- Linux 上，调用 POSIX 定时器 API 的程序编译时应使用 `-lrt` 选项，从而与 `librt` 函数库相链接。
+
+
+```cpp {class=line-numbers}
+/**
+  * @brief:
+  *  - 
+  * @param: 
+  *  - 
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
   **/
 ```
