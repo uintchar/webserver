@@ -547,8 +547,9 @@ int raise(int sig);
 void abort(void);
 /**
   * @brief:
-  *  - 首先解阻塞 SIGABRT 信号，然后向当前进程发送 SIGABRT 信号
-  *  - 这会使得进程异常终止，除非捕获 SIGABRT 信号且信号处理程序不返回
+  *  - 终止其调用进程，并生成核心转储。首先解阻塞 SIGABRT 信号，然后向当前进程发送 SIGABRT 信号
+  *  - 这会使得进程异常终止，除非捕获 SIGABRT 信号且信号处理程序不返回，当在信号处理器函数中使用非本地跳转时，将抵消 abort() 的效果
+  *  - 如果 abort() 成功终止了进程，那么还将刷新 stdio 流并将其关闭
   * @param: 
   *  - void
   * @return:
@@ -633,6 +634,23 @@ struct sigaction
   *  - 成功：0
   *  - 失败：-1，并设置 errno
   **/
+
+struct sigaction
+{
+  union
+  {
+    void (*sa_handler)(int);
+    void (*sa_sigaction)(int, siginfo_t *, void *);
+  } _sigaction_handler;
+  sigset_t sa_mask;
+  int sa_flags;
+  void (*sa_restorer)(void);
+};
+
+/* Following defines make the union fields look like simple fields in the parent structure */
+
+#define sa_handler _sigaction_handler.sa_handler
+#define sa_sigaction _sigaction_handler.sa_sigaction
 ```
 
 ### 5.1.6. 信号集和信号掩码
@@ -824,27 +842,159 @@ void sig_handler(int signum)
 
 ##### 5.1.7.1.3. 全局变量和 sig_atomic_t 数据类型
 
+- 尽管存在可重入问题，有时仍需要在主程序和信号处理器函数之间共享全局变量。信号处理器函数可能会随时修改全局变量，只要主程序能够正确处理这种可能性，共享全局变量就是安全的。例如，一种常见的设计是，信号处理器函数只做一件事情，设置全局标志。主程序则会周期性地检查这一标志，并采取相应动作来响应信号传递（同时清除标志）。当信号处理器函数以此方式来访问全局变量时，应该总是在声明变量时使用 `volatile` 关键字，从而防止编译器将其优化到寄存器中。
+</br>
+
+- 对全局变量的读写可能不止一条机器指令，而信号处理器函数就可能会在这些指令序列之间将主程序中断（也将此类变量访问称为非原子操作）。因此，C 语言标准以及 SUSv3 定义了一种整型数据类型 `sig_atomic_t`，意在保证读写操作的原子性。因此，所有在主程序与信号处理器函数之间共享的全局变量都应声明为：`volatile sig_atomic_t flag`。
+- 注意，C 语言的递增（`++`）和递减（`--`）操作符并不在 `sig_atomic_t` 所提供的保障范围之内。这些操作在某些硬件架构上可能不是原子操作。在使用`sig_atomic_t` 变量时唯一所能做的就是在信号处理器中进行设置，在主程序中进行检查。
+- C99 和 SUSv3 规定，实现应当（在 `<stdint.h>` 中）定义两个常量 `SIG_ATOMIC_MIN` 和 `SIG_ATOMIC_MAX`，用于规定可赋给 `sig_atomic_t` 类型的值范围。标准要求，如果将 `sig_atomic_t` 表示为有符号值，其范围至少应该在 `-127～127` 之间，如果作为无符号值，则应该在 `0～255` 之间。在 Linux 中，这两个常量分别等于有符号 32 位整型数的负、正极限值。
+
 #### 5.1.7.2. 终止信号处理器函数的其他方法
+
+- 只是简单地从信号处理器函数中返回主程序有时并不能满足需要。（比如在处理硬件产生的信号时。）以下是从信号处理器函数中终止的其他一些方法：
+  - 使用 `_exit()` 终止进程。处理器函数事先可以做一些清理工作。注意，不要使用 `exit()` 来终止信号处理器函数，因为它不是异步信号安全函数，之所以不安全，是因为如该函数会在调用 `_exit()` 之前刷新 stdio 的缓冲区。
+  - 使用 `kill()` 发送信号来杀掉进程（即，信号的默认动作是终止进程）。
+  - 使用 `abort()` 函数终止进程，并产生核心转储。
+  - 从信号处理器函数中执行非本地跳转，以便从一个函数跳转至该函数的某个调用者。这也是因硬件异常（例如内存访问错误）而导致信号传递之后的一条恢复途径，允许将信号捕获并把控制返回到程序中某个特定位置。例如，一旦收到 SIGINT 信号（通常由键入 Ctrl-C 产生），shell 执行一个非本地跳转，将控制返回到主输入循环中（以便读取下一条命令）。
+
+```cpp {class=line-numbers}
+#include <setjmp.h>
+
+int setjmp(jmp_buf env);
+int sigsetjmp(sigjmp_buf env, int savesigs);
+
+void longjmp(jmp_buf env, int val);
+void siglongjmp(sigjmp_buf env, int val);
+```
 
 #### 5.1.7.3. 在备选栈中处理信号：sigaltstack()
 
+- 在调用信号处理器函数时，内核通常会在进程栈中为其创建一帧。不过，如果进程对栈的扩展突破了对栈大小的限制时，这种做法就不大可行了。例如，栈的增长过大，以至于会触及到一片映射内存或者向上增长的堆，又或者栈的大小已经直逼 RLIMIT_STACK 资源限制，这些都会造成这种情况的发生。
+- 当进程对栈的扩展试图突破其上限时，内核将为该进程产生 SIGSEGV 信号。不过，因为栈空间已然耗尽，内核也就无法为进程已经安装的 SIGSEGV 处理器函数创建栈帧。结果是，处理器函数得不到调用，而进程也就终止了（SIGSEGV 的默认动作）。
+- 如果希望在这种情况下确保对 SIGSEGV 信号处理器函数的调用，就需要做如下工作：
+  - 分配一块被称为“备选信号栈”的内存区域，作为信号处理器函数的栈帧。
+  - 调用 `sigaltstack()`，告之内核该备选信号栈的存在。
+  - 在创建信号处理器函数时指定 SA_ONSTACK 标志，亦即通知内核在备选栈上为处理器函数创建栈帧
+
+```cpp {class=line-numbers}
+#include <signal.h>
+
+int sigaltstack(const stack_t *ss, stack_t *old_ss);
+```
+
 #### 5.1.7.4. SA_SIGINFO 标志
 
+如果在使用 `sigaction()` 创建处理器函数时设置了 SA_SIGINFO 标志，那么在收到信号时处理器函数可以获取该信号的一些附加信息。为获取这一信息，需要将处理器函数声明如下：
+
+```cpp {class=line-numbers}
+void sig_handler(int sig, siginfo_t *siginfo, void *ucontext);
+
+int sig /* 信号的具体编号 */
+
+typedef struct
+{
+  int si_signo;         /* Signal number */
+  int si_errno;         /* An errno value */
+  int si_code;          /* Signal code */
+  int si_trapno;        /* Trap number that caused hardware-generated signal (unused on most architectures) */
+  pid_t si_pid;         /* Sending process ID */
+  uid_t si_uid;         /* Real user ID of sending process */
+  int si_status;        /* Exit value or signal */
+  clock_t si_utime;     /* User time consumed */
+  clock_t si_stime;     /* System time consumed */
+  sigval_t si_value;    /* Signal value */
+  int si_int;           /* POSIX.1b signal */
+  void *si_ptr;         /* POSIX.1b signal */
+  int si_overrun;       /* Timer overrun count; POSIX.1b timers */
+  int si_timerid;       /* Timer ID; POSIX.1b timers */
+  void *si_addr;        /* Memory location which caused fault */
+  long si_band;         /* Band event (was int in glibc 2.3.2 and earlier) */
+  int si_fd;            /* File descriptor */
+  short si_addr_lsb;    /* Least significant bit of address (since Linux 2.6.32) */
+  void *si_lower;       /* Lower bound when address violation occurred (since Linux 3.19) */
+  void *si_upper;       /* Upper bound when address violation occurred (since Linux 3.19) */
+  int si_pkey;          /* Protection key on PTE that caused fault (since Linux 4.6) */
+  void *si_call_addr;   /* Address of system call instruction (since Linux 3.5) */
+  int si_syscall;       /* Number of attempted system call (since Linux 3.5) */
+  unsigned int si_arch; /* Architecture of attempted system call (since Linux 3.5) */
+} siginfo_t;
+
+void *ucontext; /* 该结构提供了所谓的用户上下文信息，用于描述调用信号处理器函数前的进程状态，
+                   其中包括上一个进程信号掩码以及寄存器的保存值，例如程序计数器（ cp）和栈指针寄存器（ sp）。
+                   信号处理器函数很少用到此类信息 */
+```
+
 #### 5.1.7.5. 系统调用的中断和重启
+
+当阻塞的系统调用受到信号的中断时，可能会引发对信号处理器函数的调用。当信号处理器函数返回时，默认情况下系统调用失败，并将 errno 设置为 EINTR。不过，更为常见的情况是希望遭到中断的系统调用得以继续运行。为此，可在系统调用遭信号处理器中断的事件中，利用如下代码来手动重启系统调用
+
+```cpp {class=line-numbers}
+while ((cnt = read(fd, buf, BUF_SIZE)) == -1 && errno = EINTR)
+  continue;
+
+if (cnt == -1)
+  perror("read");
+```
+
+此外，可以调用指定了 `SA_RESTART` 标志的 `sigaction()` 来创建信号处理器函数，从而令内核代表进程自动重启系统调用，还无需处理系统调用可能返回的 EINTR 错误。标志 SA_RESTART 是针对每个信号的设置。换言之，允许某些信号的处理器函数中断阻塞的系统调用，而其他系统调用则可以自动重启。不幸的是，并非所有的系统调用都可以通过指定 SA_RESTART 来达到自动重启的目的。在 Linux 中，如果采用 SA_RESTART 标志来创建系统处理器函数，则如下阻塞的系统调用（以及构建于其上的库函数）在遭到中断时是可以自动重启的。
+- 用来等待子进程的系统调用：`wait()、 waitpid()、 wait3()、 wait4()、 waitid()`。
+- 访问慢速设备时的 I/O 系统调用： `read()、 readv()、 write()、 writev()、 ioctl()`。如果在收到信号时已经传递了部分数据，那么还是会中断输入输出系统调用，但会返回成功状态：一个整型值，表示已成功传递数据的字节数。
+- 系统调用 `open()`，在可能阻塞的情况下（例如在打开 FIFO 时）。
+- 用于套接字的各种系统调用：`accept()、 accept4()、 connect()、 send()、 sendmsg()、 sendto()、recv()、 recvfrom()、 recvmsg()`。（在 Linux 中，如果使用 `setsockopt()` 来设置超时，这些系统调用就不会自动重启。更多细节请参考 `signal(7)` 手册页。）
+- 对 POSIX 消息队列进行 I/O 操作的系统调用：`mq_receive()、 mq_timedreceive()、 mq_send()、 mq_timedsend()`。
+- 用于设置文件锁的系统调用和库函数：`flock()、 fcntl()、 lockf()`。
+- Linux 特有系统调用 `futex()` 的 FUTEX_WAIT 操作。
+- 用于递减 POSIX 信号量的 `sem_wait()` 和 `sem_timedwait()` 函数。（在一些 UNIX 实现上，如果设置了 SA_RESTART 标志，`sem_wait()` 就会重启。）
+- 用于同步 POSIX 线程的函数：`pthread_mutex_lock()、 pthread_mutex_trylock()、 pthread_mutex_timedlock()、 pthread_cond_wait()、 pthread_cond_timedwait()`。
+
+以下阻塞的系统调用（以及构建于其上的库函数）则绝不会自动重启（即便指定了 SA_RESTART）。
+- I/O 多路复用调用 `poll()、 ppoll()、 select()、 pselect()`。（SUSv3 明文规定，无论设置 SA_RESTART 标志与否，都不对 `select()` 和 `pselect()` 遭处理器函数中断时的行为进行定义。）
+- Linux 特有的 `epoll_wait()` 和 `epoll_pwait()` 系统调用。
+- Linux 特有的 `io_getevents()` 系统调用。
+- 操作 System V 消息队列和信号量的阻塞系统调用：`semop()、 semtimedop()、 msgrcv()、 msgsnd()`。（虽然 System V 原本并未提供自动重启系统调用的功能，但在某些 UNIX实现上，如果设置了 SA_RESTART 标志，这些系统调用还是会自动重启。）
+- 对 inotify 文件描述符发起的 `read()` 调用。
+- 用于将进程挂起指定时间的系统调用和库函数：`sleep()、 nanosleep()、 clock_nanosleep()`。
+- 特意设计用来等待某一信号到达的系统调用：`pause()、 sigsuspend()、 sigtimedwait()、 sigwaitinfo()`。
 
 ### 5.1.8. 信号的高级特性
 
 #### 5.1.8.1. 核心转储文件
 
+具体可参考《Linux-Unix 系统编程手册》上册第 22 章 22.1
+
 #### 5.1.8.2. 传递、处置及处理特殊情况
+
+具体可参考《Linux-Unix 系统编程手册》上册第 22 章 22.2
 
 #### 5.1.8.3. 可中断和不可中断的进程睡眠状态
 
+具体可参考《Linux-Unix 系统编程手册》上册第 22 章 22.3
+
 #### 5.1.8.4. 硬件产生的信号
+
+- 硬件异常可以产生 SIGBUS、 SIGFPE、 SIGILL，和 SIGSEGV 信号，调用 kill()函数来发送此类信号是另一种途径，但较为少见。 SUSv3 规定，在硬件异常的情况下，如果进程从此类信号的处理器函数中返回，亦或进程忽略或阻塞了此类信号，那么进程的行为未定义。
+- 正确处理硬件产生信号的方法有二：要么接受信号的默认行为（进程终止）；要么为其编写不会正常返回的处理器函数。除了正常返回之外，终结处理器执行的手段还包括调用`_exit()` 以终止进程，或者调用 `siglongjmp()`，确保将控制传递回程序中（产生信号的指令位置之外）的某一位置。
 
 #### 5.1.8.5. 信号的同步生成和异步生成
 
+- 信号的异步生成：引发信号产生（无论信号发送者是内核还是另一进程）的事件，其发生与进程的执行无关。（例如，用户输入中断字符，或者子进程终止。）对于异步产生的信号，进程一般无法预测其接收信号的时间。
+- 信号的同步生成：信号的产生是由进程本身的执行造成的，此时会立即传递信号。对于同步生成的信号，其传递不但可以预测，而且可以重现。例如：
+  - 执行特定的机器语言指令，可导致硬件异常，并因此而产生相关信号（SIGBUS、 SIGFPE、 SIGILL、 SIGSEGV 和 SIGEMT）。
+  - 进程可以使用 `raise()`、 `kill()` 或者 `killpg()` 向自身发送信号。
+
 #### 5.1.8.6. 信号传递的时机和顺序
+
+- **信号传递的时机：**
+- 同步产生的信号会立即传递。例如，硬件异常会触发一个即时信号，而当进程使用 `raise()` 向自身发送信号时，信号会在 `raise()` 调用返回前就已经发出。
+- 异步产生一个信号时，即使并未将其阻塞，在信号产生和实际传递之间仍可能会存在一个（瞬时）延迟。在此期间，信号处于等待状态。这是因为内核将等待信号传递给进程的时机是，该进程正在执行，且发生由内核态到用户态的下一次切换时。实际上，这意味着在以下时刻才会传递信号：
+  - 进程在前度超时后，再度获得调度时（即，在一个时间片的开始处）。
+  - 系统调用完成时（信号的传递可能引起正在阻塞的系统调用过早完成）。
+</br>
+
+- **信号传递的顺序：**
+- 如果进程使用 `sigprocmask()` 解除了对多个等待信号的阻塞，那么所有这些信号会立即传递给该进程。
+- 就目前的 Linux 实现而言，Linux 内核按照信号编号的升序来传递信号。例如，如果对处于等待状态的信号 SIGINT（信号编号为 2）和 SIGQUIT（信号编号为 3）同时解除阻塞，那么无论这两个信号的产生次序如何，SIGINT 都将先于 SIGQUIT 而传递。然而，也不能对传递（标准）信号的特定顺序产生任何依赖，因为 SUSv3 规定，多个信号的传递顺序由系统实现决定。（该条款仅适用于标准信号，而实时信号的相关标准规定，对于解除阻塞的实时信号而言，其传递顺序必须得到保障。）
+- 当多个解除了阻塞的信号正在等待传递时，如果在信号处理器函数执行期间发生了内核态和用户态之间的切换，那么将中断此处理器函数的执行，转而去调用第二个信号处理器函数（如此递进）。
 
 #### 5.1.8.7. 实时信号
 
