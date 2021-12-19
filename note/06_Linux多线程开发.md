@@ -37,6 +37,8 @@
     - [3.8.1. 信号模型如何映射到线程中](#381-信号模型如何映射到线程中)
     - [3.8.2. 线程信号掩码：pthread_sigmask()](#382-线程信号掩码pthread_sigmask)
     - [3.8.3. 向线程发送信号](#383-向线程发送信号)
+    - [3.8.4. 妥善处理异步信号](#384-妥善处理异步信号)
+    - [3.8.5. 应用示例](#385-应用示例)
   - [3.9. 生产者消费者模型](#39-生产者消费者模型)
 
 # 1. 线程概述
@@ -577,18 +579,211 @@ int pthread_sigmask(int how, const sigset_t *set, sigset_t *oldset);
 ### 3.8.3. 向线程发送信号
 
 ```cpp {class=line-numbers}
+#include <signal.h>
+
+int pthread_kill(pthread_t thread, int sig);
 /**
  * @brief:
- *  - 
+ *  - 向同一进程内的指定线程 thread 发送信号 sig
+ *  - 只有指定的目标线程才能处理该信号（仅指发送给 thread 的 sig），假如目标线程阻塞了该信号，则直到目标线程解除该信号的阻塞后才会处理该信号
+ *  - 针对该信号 sig 的信号处理器函数可以在其他线程内指定
  * @param: 
- *  - 
+ *  - thread：目标线程 ID
+ *  - sig：要发送的信号编号
  * @return:
- *  - 成功：
- *  - 失败：
+ *  - 成功：0
+ *  - 失败：大于 0 的错误号 
  **/
 ```
 
 ```cpp {class=line-numbers}
+#include <signal.h>
+#include <pthread.h>
+
+int pthread_sigqueue(pthread_t thread, int sig, const union sigval value);
+/**
+ * @brief:
+ *  - 向同一进程内的指定线程 thread 发送携带数据的信号 sig（
+ *  - 发送给 thread 的信号仅能由 thread 进行处理
+ * @param: 
+ *  - thread：目标线程 ID
+ *  - sig：要发送的信号编号
+ *  - value：信号的伴随数据
+ * @return:
+ *  - 成功：0
+ *  - 失败：大于 0 的错误号 
+ **/
+```
+
+### 3.8.4. 妥善处理异步信号
+
+- 没有任何 Pthreads API 属于异步信号安全（async-signal-safe）函数，均无法在信号处理函数中安全加以调用。因为这些原因，所以当多线程应用程序必须处理异步产生的信
+号时，通常不应该将信号处理函数作为接收信号到达的通知机制。相反，推荐的方法如下。
+  - 所有线程都阻塞进程可能接收的所有异步信号。最简单的方法是，在创建任何其他线程之前，由主线程阻塞这些信号。后续创建的每个线程都会继承主线程信号掩码的一份拷贝。
+  - 再创建一个专用线程，调用函数 `sigwaitinfo()`、 `sigtimedwait()` 或 `sigwait()` 来接收收到的信号。 
+- 这一方法的优势在于，同步接收异步产生的信号。当接收到信号时，专有线程可以安全地修改共享变量（在互斥量的保护之下），并可调用并非异步信号安全（non-async-signal-safe）的函数。也可以就条件变量发出信号，并采用其他线程或进程的通讯及同步机制。
+- 函数 `sigwait()` 会等待 `set` 所指信号集合中任一信号的到达，接收该信号，且在参数 `sig` 中将其返回。
+
+```cpp {class=line-numbers}
+#include <signal.h>
+
+int sigwait(const sigset_t *set, int *sig);
+/**
+ * @brief:
+ *  - 阻塞调用线程知道 set 所指信号集合中任一信号的到达，并接收该信号在参数 sig 中将其返回
+ *  - 将对 set 中信号集的阻塞与调用 sigwaitinfo() 结合起来，这当属明智之举。即便某一信号遭到阻塞，仍然可以使用 sigwaitinfo() 来获取等待信号
+ *  - 调用 sigwait() 而不阻塞 set 中的信号将导致不可预知的行为（其行为未定义）
+ *  - 如有多个线程在调用 sigwait() 等待同一信号， 那么当信号到达时只有一个线程会实际接收到，也无法确定收到信号的会是哪条线程
+ * @param: 
+ *  - set：指定要等待的信号集合
+ *  - sig：传出参数，接收到达的信号
+ * @return:
+ *  - 成功：0
+ *  - 失败：大于 0 的错误号
+ **/
+```
+
+### 3.8.5. 应用示例
+
+```cpp {class=line-numbers}
+#include <stdio.h>
+#include <string.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <sys/time.h>
+#include <time.h>
+#include <unistd.h>
+#include <signal.h>
+#include <pthread.h>
+
+void sig_handle1(int signum)
+{
+  if (signum == SIGALRM)
+  {
+    printf("********************sig_handle1 --- SIGALRM:%d\n", signum);
+  }
+  else if (signum == SIGUSR1)
+  {
+    printf("********************sig_handle1 --- SIGUSR1:%d\n", signum);
+  }
+  else if (signum == SIGUSR2)
+  {
+    printf("********************sig_handle2 --- SIGUSR2:%d\n", signum);
+  }
+}
+
+void sig_handle2(int signum)
+{
+  if (signum == SIGALRM)
+  {
+    printf("********************sig_handle2 --- SIGALRM:%d\n", signum);
+  }
+  else if (signum == SIGUSR1)
+  {
+    printf("********************sig_handle2 --- SIGUSR1:%d\n", signum);
+  }
+  else if (signum == SIGUSR2)
+  {
+    printf("********************sig_handle2 --- SIGUSR2:%d\n", signum);
+  }
+}
+
+void *task1(void *arg)
+{
+  printf("task1 start\n");
+
+  sigset_t sigset;
+  sigemptyset(&sigset);
+  sigaddset(&sigset, SIGUSR1);
+  pthread_sigmask(SIG_BLOCK, &sigset, NULL);
+
+  while (1)
+  {
+    printf("task1 start sleep\n");
+    int rem = sleep(3);
+    printf("task1 remain seconds: %d\n", rem);
+  }
+
+  printf("task1 end\n");
+}
+
+void *task2(void *arg)
+{
+  printf("task2 start\n");
+
+  while (1)
+  {
+    printf("task2  start sleep\n");
+    int rem = sleep(3);
+    printf("task2 remain seconds: %d\n", rem);
+  }
+
+  printf("task2 end\n");
+}
+
+void *task3(void *arg)
+{
+  printf("task3 start\n");
+
+  sigset_t sigset;
+  sigemptyset(&sigset);
+  sigaddset(&sigset, SIGUSR1);
+  sigaddset(&sigset, SIGUSR2);
+  sigaddset(&sigset, SIGALRM);
+  pthread_sigmask(SIG_BLOCK, &sigset, NULL);
+
+  int signum;
+  while (sigwait(&sigset, &signum) == 0)
+  {
+    printf("task3 -> sigwait signum %d\n", signum);
+  }
+
+  printf("task3 end\n");
+}
+
+int main()
+{
+  printf("main start\n");
+
+  pthread_t tid1, tid2, tid3;
+  pthread_create(&tid1, NULL, task1, NULL);
+  pthread_create(&tid2, NULL, task2, NULL);
+  pthread_create(&tid3, NULL, task3, NULL);
+
+  sleep(2);
+
+  struct sigaction sa2;
+  sigemptyset(&sa2.sa_mask);
+  sa2.sa_flags = 0;
+  sa2.sa_handler = sig_handle2;
+  if (sigaction(SIGUSR2, &sa2, NULL) == -1)
+    perror("sigaction SIGUSR2\n");
+
+  pthread_kill(tid1, SIGUSR1);
+  pthread_kill(tid2, SIGUSR2);
+  pthread_kill(tid3, SIGUSR1);
+  pthread_kill(tid3, SIGUSR2);
+  pthread_kill(tid3, SIGALRM);
+  // pthread_kill(pthread_self(), SIGUSR1);
+
+  while (1)
+  {
+    printf("main task  start sleep\n");
+    int rem = sleep(3);
+    printf("main task remain seconds: %d\n", rem);
+  }
+
+  printf("main end\n");
+  pthread_exit(NULL);
+
+  return 0;
+}
+
+```
+
+```cpp {class=line-numbers}
+
 /**
  * @brief:
  *  - 
