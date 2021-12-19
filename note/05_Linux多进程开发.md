@@ -60,10 +60,12 @@
       - [5.1.8.5. 信号的同步生成和异步生成](#5185-信号的同步生成和异步生成)
       - [5.1.8.6. 信号传递的时机和顺序](#5186-信号传递的时机和顺序)
       - [5.1.8.7. 实时信号](#5187-实时信号)
+        - [5.1.8.7.1. 发送实时信号：sigqueue()](#51871-发送实时信号sigqueue)
+        - [5.1.8.7.2. 处理实时信号](#51872-处理实时信号)
       - [5.1.8.8. 使用掩码来等待信号：sigsuspended()](#5188-使用掩码来等待信号sigsuspended)
-      - [5.1.8.9. 以同步方式等待信号](#5189-以同步方式等待信号)
+      - [5.1.8.9. 同步方式等待信号](#5189-同步方式等待信号)
       - [5.1.8.10. 通过文件描述符来获取信号](#51810-通过文件描述符来获取信号)
-    - [5.1.9. 多线程中的信号处理机制](#519-多线程中的信号处理机制)
+    - [5.1.9. 信号和线程](#519-信号和线程)
     - [5.1.10. 应用示例](#5110-应用示例)
       - [5.1.10.1. 信号捕捉实现周期性定时器](#51101-信号捕捉实现周期性定时器)
       - [5.1.10.2. 使用SIGCHLD信号解决僵尸进程的问题](#51102-使用sigchld信号解决僵尸进程的问题)
@@ -416,6 +418,8 @@ int main()
   - 硬件发生异常，即硬件检测到一个错误条件并通知内核，随即再由内核发送相应信号给相关进程。比如执行一条异常的机器语言指令，诸如被 0 除，或者引用了无法访问的内存区域；
   - 发生了软件事件。例如，针对文件描述符的输出变为有效，调整了终端窗口大小，定时器到期，进程执行的 CPU 时间超限，或者该进程的某个子进程退出。
   - 运行 `kill` 命令或调用 `kill()` 函数；
+- 尽管可以将信号视为 IPC 的方式之一，但诸多制约因素令其常常无法胜任这一目的，其中包括信号的异步本质、不对信号进行排队处理的事实，以及较低的传递带宽。信号更为常
+见的应用场景是用于进程同步，或是各种其他目的（比如，事件通知、作业控制以及定时器到期）。
 </br>
 
 - 使用信号的两个主要目的是：
@@ -998,13 +1002,153 @@ if (cnt == -1)
 
 #### 5.1.8.7. 实时信号
 
+- 定义于 POSIX.1b 中的实时信号，意在弥补对标准信号的诸多限制。较之于标准信号，其优势如下所示
+  - 实时信号的信号范围有所扩大，可应用于应用程序自定义的目的。而标准信号中可供应用随意使用的信号仅有两个： SIGUSR1 和 SIGUSR2。
+  - 对实时信号所采取的是队列化管理。如果将某一实时信号的多个实例发送给一进程，那么将会多次传递信号。相反，如果某一标准信号已经在等待某一进程，而此时即使再次向该进程发送此信号的实例，信号也只会传递一次。
+  - 当发送一个实时信号时，可为信号指定伴随数据（一整型数或者指针值），供接收进程的信号处理器获取。
+  - 不同实时信号的传递顺序得到保障。如果有多个不同的实时信号处于等待状态，那么将率先传递具有最小编号的信号。换言之，信号的编号越小，其优先级越高。如果是同一类型的多个信号在排队，那么信号（以及伴随数据）的传递顺序与信号发送来时的顺序保持一致。
+</br>
+
+- SUSv3 要求，实现所提供的各种实时信号不得少于 `_POSIX_RTSIG_MAX`（定义为 8）个。Linux 内核则定义了 32 个不同的实时信号，编号范围为 32～63。`<signal.h>` 头文件所定义的 `RTSIG_MAX` 常量则表征实时信号的可用数量，而此外所定义的常量 `SIGRTMIN` 和 `SIGRTMAX` 则分别表示可用实时信号编号的最小值和最大值。程序员不应将实时信号编号的整型值在应用程序代码中写死，因为实时信号的范围因 UNIX 实现的不同而各异。与之相反，指代实时信号编号则可以采用 `SIGRTMIN + x` 的形式。例如，表达式（`SIGRTMIN + 1`）就表示第二个实时信号。注意， SUSv3 并未要求 `SIGRTMAX` 和 `SIGRTMIN` 是简单的整数值。可以将其定义为函数（就像 Linux 中那样）。
+</br>
+
+- 对排队实时信号数量的限制：排队的实时信号（及其相关数据）需要内核维护相应的数据结构，用于罗列每个进程的排队信号。由于这些数据结构会消耗内核内存，故而内核对排队实时信号的数量设置了限制。
+- SUSv3 允许实现为每个进程中可排队的（各类）实时信号数量设置上限，并要求其不得少于 `_POSIX_SIGQUEUE_MAX`（定义为 32）。实现可借助于对 `SIGQUEUE_MAX` 常量的定义
+来表示其所允许的排队实时信号数量。发起如下调用也能获得这一信息：`lim = sysconf(_SC_SIGQUEUE_MAX)`。
+
+##### 5.1.8.7.1. 发送实时信号：sigqueue()
+
+- 发送进程使用 `sigqueue()` 系统调用来发送信号及其伴随数据。使用 `kill()`、`killpg()` 和 `raise()` 调用也能发送实时信号。然而，至于系统是否会对利用此类接口所发送的信号进行排队处理， SUSv3 规定，由具体实现决定。这些接口在 Linux 中会对实时信号进行排队，但在其他许多 UNIX 实现中，情况则不然。
+
+```cpp {class=line-numbers}
+#include <signal.h>
+
+int sigqueue(pid_t pid, int sig, const union sigval value);
+
+union sigval
+{
+  int sival_int;
+  void *sival_ptr;
+};
+
+/**
+  * @brief:
+  *  - 向指定进程 pid 发送实时信号 sig，发送信号的权限同 kill()
+  * @param: 
+  *  - pid：指定的进程，不能设为负值而向整个进程组发送信号
+  *  - sig：要发送的实时信号，为 0 表示不发送任何信号可用于检查指定的进程是否存在
+  *  - value：发送信号指定的伴随数据，很少使用 sival_ptr，因为指针的作用范围在进程内部，对于另一进程几乎没有意义
+  * @return:
+  *  - 成功：0
+  *  - 失败：-1，并设置 errno
+  **/
+```
+
+##### 5.1.8.7.2. 处理实时信号
+
+- 要为实时信号建立了一个处理器函数，接收进程应以 `SA_SIGINFO` 标志发起对 `sigaction()` 的调用。因此，调用信号处理器时就会附带额外参数，其中之一是实时信号的伴随数据。
+- 在 Linux 中，即使接收进程在建立信号处理器时并未指定 `SA_SIGINFO` 标志，也能对实时信号进行队列化管理（但在这种情况下，将不可能获得信号的伴随数据）。然而， SUSv3
+也不要求实现确保这一行为，所以依赖这一点将有损于应用的可移植性
+
 #### 5.1.8.8. 使用掩码来等待信号：sigsuspended()
 
-#### 5.1.8.9. 以同步方式等待信号
+将解除信号阻塞和挂起进程这两个动作封装成一个原子操作，防止在这两个过程之间有指定的信号到达。这正是 `sigsuspend()` 系统调用
+
+```cpp {class=line-numbers}
+#include <signal.h>
+
+int sigsuspend(const sigset_t *mask);
+/**
+  * @brief:
+  *  - 将以 mask 所指向的信号集来替换进程的信号掩码，然后挂起进程的执行，直到其捕获到信号，并从信号处理器中返回
+  *  - 一旦处理器返回，sigsuspend() 会将进程信号掩码恢复为调用前的值。
+  * @param: 
+  *  - mask：指定的要替换进程信号掩码的信号集
+  * @return:
+  *  - 返回 -1，并设置 errno
+  *    - EFAULT：mask 指向的地址无效
+  *    - EINTR：sigsuspend() 因信号的传递而中断
+  **/
+```
+
+#### 5.1.8.9. 同步方式等待信号
+
+```cpp {class=line-numbers}
+#include <signal.h>
+
+int sigwaitinfo(const sigset_t *set, siginfo_t *info);
+
+int sigtimedwait(const sigset_t *set, siginfo_t *info, const struct timespec *timeout);
+
+/**
+  * @brief:
+  *  - 挂起进程的执行，直至 set 指向信号集中的某一信号抵达，省去了对信号处理器的设计和编码工作
+  *  - 如果调用 sigwaitinfo() 时，set 中的某一信号已经处于等待状态，那么 sigwaitinfo() 将立即返回。传递来的的信号就此从进程的等待信号队列中移除
+  *  - 将对 set 中信号集的阻塞与调用 sigwaitinfo() 结合起来，这当属明智之举。即便某一信号遭到阻塞，仍然可以使用 sigwaitinfo() 来获取等待信号
+  *  - SUSv3 规定，调用 sigwaitinfo() 而不阻塞 set 中的信号将导致不可预知的行为（其行为未定义）
+  *  - 接受信号的传递顺序和排队特性与信号处理器所捕获的信号相同，即不对标准信号进行排队处理，对实时信号进行排队处理，并且对实时信号的传递遵循低编号优先的原则
+  * @param: 
+  *  - set：需要等待的信号集
+  *  - info：接收等待信号的伴随数据
+  * @return:
+  *  - 成功：返回接收的信号的编号
+  *  - 失败：返回 -1，并设置 errno
+  *    - EFAULT：mask 指向的地址无效
+  *    - EINTR：sigsuspend() 因信号的传递而中断
+  **/
+```
 
 #### 5.1.8.10. 通过文件描述符来获取信号
 
-### 5.1.9. 多线程中的信号处理机制
+始于内核 2.6.22， Linux 提供了（非标准的）`signalfd()` 系统调用；利用该调用可以创建一个特殊文件描述符，发往调用者的信号都可从该描述符中读取。`signalfd` 机制为同步接受信号提供了 `sigwaitinfo()` 之外的另一种选择。
+
+```cpp {class=line-numbers}
+#include <sys/signalfd.h>
+
+int signalfd(int fd, const sigset_t *mask, int flags);
+
+struct signalfd_siginfo
+{
+  uint32_t ssi_signo;    /* Signal number */
+  int32_t ssi_errno;     /* Error number (unused) */
+  int32_t ssi_code;      /* Signal code */
+  uint32_t ssi_pid;      /* PID of sender */
+  uint32_t ssi_uid;      /* Real UID of sender */
+  int32_t ssi_fd;        /* File descriptor (SIGIO) */
+  uint32_t ssi_tid;      /* Kernel timer ID (POSIX timers) */
+  uint32_t ssi_band;     /* Band event (SIGIO) */
+  uint32_t ssi_overrun;  /* POSIX timer overrun count */
+  uint32_t ssi_trapno;   /* Trap number that caused signal */
+  int32_t ssi_status;    /* Exit status or signal (SIGCHLD) */
+  int32_t ssi_int;       /* Integer sent by sigqueue(3) */
+  uint64_t ssi_ptr;      /* Pointer sent by sigqueue(3) */
+  uint64_t ssi_utime;    /* User CPU time consumed (SIGCHLD) */
+  uint64_t ssi_stime;    /* System CPU time consumed (SIGCHLD) */
+  uint64_t ssi_addr;     /* Address that generated signal (for hardware-generated signals) */
+  uint16_t ssi_addr_lsb; /* Least significant bit of address (SIGBUS; since Linux 2.6.37) */
+  uint8_t pad[X];        /* Pad size to 128 bytes (allow for additional fields in the future) */
+};
+
+/**
+  * @brief:
+  *  - 创建一个文件描述符，可用于接收针对调用者的信号
+  *  - 创建文件描述符之后，可以使用 read() 调用从中读取信号。提供给 read()的缓冲区必须足够大，至少应能够容纳一个 signalfd_siginfo 结构
+  *  - 如同 sigwaitinfo() 一样，通常也应该使用 sigprocmask() 阻塞 mask 中的所有信号，以确保在有机会读取这些信号之前，不会按照默认处置对它们进行处理
+  * @param: 
+  *  - fd：
+  *    - −1，创建一个新的文件描述符，用于读取 mask 中的信号；
+  *    - 否则，将修改与 fd 相关的 mask 值，且该 fd 一定是由之前对 signalfd() 的一次调用创建而成
+  *  - mask：信号集，指定了有意通过 signalfd 文件描述符来读取的信号
+  *  - flags：
+  *    - SFD_CLOEXEC：
+  *    - SFD_NONBLOCK：
+  * @return:
+  *  - 成功：signalfd 文件描述符
+  *  - 失败：返回 -1，并设置 errno
+  **/
+```
+
+### 5.1.9. 信号和线程
 
 ### 5.1.10. 应用示例
 
