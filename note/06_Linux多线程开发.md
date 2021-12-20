@@ -367,40 +367,40 @@ int pthread_mutex_destroy(pthread_mutex_t *mutex); /* 成功返回 0，失败返
 /* 加锁和解锁操作 */
 int pthread_mutex_lock(pthread_mutex_t *mutex);
 /**
-   * @brief:
-   *  - 尝试锁定给定的一个锁变量，若该锁变量之前未锁定，则调用线程将成功锁定该锁变量并立即返回
-   *  - 若锁变量先前已被其它线程锁定，则调用线程被阻塞直到该锁变量被解锁‘
-   *  - 若锁变量先前已被自己锁定，则其处理行为取决于锁的属性，LinuxThread 支持的锁的属性有以下几种：
-   *    - PTHREAD_MUTEX_FAST_NP：将调用线程挂起，造成死锁
-   *    - PTHREAD_MUTEX_RECURSIVE_NP：立即返回错误码 EDEADLK
-   *    - PTHREAD_MUTEX_ERRORCHECK_NP：立即返回成功码，并记录对该锁变量的加锁次数，拥有锁的线程必须调用相同次数的 pthread_mutex_unlock() 才能解锁该锁变量
-   *    - 默认情况下为 PTHREAD_MUTEX_FAST_NP，NP 后缀表示不可扩展
-   * @param:
-   *  - mutex：尝试锁定的锁变量
-   * @return:
-   *  - 成功返回 0，失败返回非 0 错误号
-   **/
+ * @brief:
+ *  - 尝试锁定给定的一个锁变量，若该锁变量之前未锁定，则调用线程将成功锁定该锁变量并立即返回
+ *  - 若锁变量先前已被其它线程锁定，则调用线程被阻塞直到该锁变量被解锁
+ *  - 若锁变量先前已被自己锁定，则其处理行为取决于锁的属性，LinuxThread 支持的锁的属性有以下几种：
+ *    - PTHREAD_MUTEX_FAST_NP：将调用线程挂起，造成死锁
+ *    - PTHREAD_MUTEX_RECURSIVE_NP：立即返回错误码 EDEADLK
+ *    - PTHREAD_MUTEX_ERRORCHECK_NP：立即返回成功码，并记录对该锁变量的加锁次数，拥有锁的线程必须调用相同次数的 pthread_mutex_unlock() 才能解锁该锁变量
+ *    - 默认情况下为 PTHREAD_MUTEX_FAST_NP，NP 后缀表示不可扩展
+ * @param:
+ *  - mutex：尝试锁定的锁变量
+ * @return:
+ *  - 成功返回 0，失败返回非 0 错误号
+ **/
 
 int pthread_mutex_trylock(pthread_mutex_t *mutex);
 /**
-   * @brief:
-   *  - 尝试锁定给定的一个锁变量，但是其为非阻塞调用
-   *  - 如果锁变量先前已被其它线程锁定（或者锁变量属性为 "fast" 时被先前已被自身锁定），其立即返回错误号 EBUSY
-   * @param:
-   *  - mutex：尝试锁定的锁变量
-   * @return:
-   *  - 成功返回 0，失败返回非 0 错误号
-   **/
+ * @brief:
+ *  - 尝试锁定给定的一个锁变量，但是其为非阻塞调用
+ *  - 如果锁变量先前已被其它线程锁定（或者锁变量属性为 "fast" 时被先前已被自身锁定），其立即返回错误号 EBUSY
+ * @param:
+ *  - mutex：尝试锁定的锁变量
+ * @return:
+ *  - 成功返回 0，失败返回非 0 错误号
+ **/
 
 int pthread_mutex_unlock(pthread_mutex_t *mutex);
 /**
-   * @brief:
-   *  - 解锁给定的锁变量 mutex，其对不同属性的锁变量具有不同的操作，具体参考 man 文档
-   * @param:
-   *  - mutex
-   * @return:
-   *  - 成功返回 0，失败返回非 0 错误号
-   **/
+ * @brief:
+ *  - 解锁给定的锁变量 mutex，其对不同属性的锁变量具有不同的操作，具体参考 man 文档
+ * @param:
+ *  - mutex
+ * @return:
+ *  - 成功返回 0，失败返回非 0 错误号
+ **/
 ```
 
 ### 3.2.3. 应用示例

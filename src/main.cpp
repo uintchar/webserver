@@ -19,17 +19,12 @@
 
 /**
  * @brief:
- *  - first
- *  - second
+ *  - 
  * @param:
- *  - first
- *  - second
+ *  - 
  * @return:
- *  - first:
- *  - second:
+ *  - 
  **/
-
-
 
 int main()
 {
