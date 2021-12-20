@@ -623,7 +623,7 @@ int pthread_kill(pthread_t thread, int sig);
 int pthread_sigqueue(pthread_t thread, int sig, const union sigval value);
 /**
  * @brief:
- *  - 向同一进程内的指定线程 thread 发送携带数据的信号 sig（
+ *  - 向同一进程内的指定线程 thread 发送携带数据的信号 sig
  *  - 发送给 thread 的信号仅能由 thread 进行处理
  * @param: 
  *  - thread：目标线程 ID
@@ -651,7 +651,7 @@ int sigwait(const sigset_t *set, int *sig);
 /**
  * @brief:
  *  - 阻塞调用线程知道 set 所指信号集合中任一信号的到达，并接收该信号在参数 sig 中将其返回
- *  - 将对 set 中信号集的阻塞与调用 sigwaitinfo() 结合起来，这当属明智之举。即便某一信号遭到阻塞，仍然可以使用 sigwaitinfo() 来获取等待信号
+ *  - 将对 set 中信号集的阻塞与调用 sigwait() 结合起来，这当属明智之举。即便某一信号遭到阻塞，仍然可以使用 sigwait() 来获取等待信号
  *  - 调用 sigwait() 而不阻塞 set 中的信号将导致不可预知的行为（其行为未定义）
  *  - 如有多个线程在调用 sigwait() 等待同一信号， 那么当信号到达时只有一个线程会实际接收到，也无法确定收到信号的会是哪条线程
  * @param: 
